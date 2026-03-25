@@ -134,17 +134,17 @@ Följande är nu verifierat mot SAP-systemet och inbyggt i projektet:
 
 ## Dokument
 
-- [SAP_ADT_MCP_Teknisk_Design.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Teknisk_Design.md)
-- [SAP_ADT_MCP_API_och_Fasning.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_API_och_Fasning.md)
-- [SAP_ADT_MCP_Risker_och_Sakerhet.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Risker_och_Sakerhet.md)
+- [SAP_ADT_MCP_Technical_Design.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Technical_Design.md)
+- [SAP_ADT_MCP_API_and_Phasing.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_API_and_Phasing.md)
+- [SAP_ADT_MCP_Risks_and_Security.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Risks_and_Security.md)
 - [IMPLEMENTATION_README.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/IMPLEMENTATION_README.md)
-- [SAP_ADT_MCP_Verifierade_Fynd.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Verifierade_Fynd.md)
+- [SAP_ADT_MCP_Verified_Findings.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Verified_Findings.md)
 - [SAP_ADT_MCP_E2E_Test_20260325.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_E2E_Test_20260325.md)
-- [SAP_ADT_MCP_Transporthantering.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Transporthantering.md)
-- [SAP_ADT_MCP_Transportanalys_20260325.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Transportanalys_20260325.md)
-- [SAP_ADT_MCP_Transportverify_20260325_SafeRelease.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Transportverify_20260325_SafeRelease.md)
-- [SAP_ADT_MCP_Transportcleanup_Final_20260325.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Transportcleanup_Final_20260325.md)
-- [SAP_ADT_MCP_Gemini_Verifiering_20260325.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Gemini_Verifiering_20260325.md)
+- [SAP_ADT_MCP_Transport_Handling.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Transport_Handling.md)
+- [SAP_ADT_MCP_Transport_Analysis_20260325.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Transport_Analysis_20260325.md)
+- [SAP_ADT_MCP_Transport_Verify_20260325_SafeRelease.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Transport_Verify_20260325_SafeRelease.md)
+- [SAP_ADT_MCP_Transport_Cleanup_Final_20260325.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Transport_Cleanup_Final_20260325.md)
+- [SAP_ADT_MCP_Gemini_Verification_20260325.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Gemini_Verification_20260325.md)
 
 Efter den slutliga transportstädningen är projektet även rensat från tillfälliga release- och repair-skript.
 Kvar i `src/` och `dist/` finns nu bara den permanenta MCP-implementationen och dess ordinarie stödverktyg.
