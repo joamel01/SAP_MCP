@@ -2,6 +2,8 @@
 
 Den här mappen innehåller en återanvändbar MCP-server för SAP ADT.
 
+De praktiska verifieringarna i projektet genomfördes mot `ABAP Cloud Developer Trial 2023 for Docker`.
+
 Målet är att kunna arbeta mot olika SAP-miljöer via samma kodbas genom att bara byta miljövariabler och URI-template-konfiguration.
 
 ## Nuvarande status

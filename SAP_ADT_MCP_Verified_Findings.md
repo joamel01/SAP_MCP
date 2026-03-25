@@ -1,5 +1,7 @@
 # SAP ADT MCP – Verified Findings
 
+The findings in this document were gathered primarily from verification runs against `ABAP Cloud Developer Trial 2023 for Docker`.
+
 ## 1. Connectivity And Discovery
 
 - ADT discovery is reachable and usable through HTTP in the target SAP container

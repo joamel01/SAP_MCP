@@ -8,6 +8,8 @@ The project is now maintained in English. The earlier Swedish overview is preser
 
 Version `1.2.0` is the current practical baseline.
 
+The practical verification work in this repository was carried out against `ABAP Cloud Developer Trial 2023 for Docker`.
+
 The MCP now covers the main repository-centric SAP ADT workflows needed by an AI coding agent:
 
 - ADT discovery

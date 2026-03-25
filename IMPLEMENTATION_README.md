@@ -2,6 +2,8 @@
 
 This is the working `1.2.0` implementation of an MCP server for SAP ADT.
 
+The implementation was practically verified against `ABAP Cloud Developer Trial 2023 for Docker`.
+
 ## Repository Layout
 
 - `src/server.ts`
