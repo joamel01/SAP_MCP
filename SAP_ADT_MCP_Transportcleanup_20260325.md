@@ -1,51 +1,15 @@
-# SAP ADT MCP – Transportstädning 2026-03-25
+# SAP ADT MCP – Transport Cleanup 2026-03-25
 
-## Syfte
+## Purpose
 
-Försöka städa överspelade CODEX-requestar som skapats under MCP-testerna.
+Document the first focused cleanup actions on obsolete MCP-generated requests and objects.
 
-## Utfört
+## What Was Confirmed
 
-Verifierat:
+- stale MCP test objects can block otherwise valid transport release
+- object cleanup can be a prerequisite for transport cleanup
+- task release and request release must be treated as separate operations
 
-- äldre requestar som redan var rena gick att släppa med den rättade sekvensen
-- exempel:
-  - `A4HK900148`
+## Main Lesson
 
-Vid städning av äldre generated requests verifierades följande blockerfall:
-
-- request: `A4HK900238`
-- task: `A4HK900239`
-- blockerande objekt:
-  - `ZCL_MCP_ACT_PROBE49612`
-
-Förstafynd:
-
-- task-release svarade med inaktivt objekt i tasken
-- feltexten pekade på:
-  - `CINC ZCL_MCP_ACT_PROBE49612========CCDEF`
-
-Utförd åtgärd:
-
-- obsolet klass `ZCL_MCP_ACT_PROBE49612` raderades via ADT
-
-Resultat:
-
-- task `A4HK900239` gick därefter att släppa
-- huvudrequest `A4HK900238` låg fortfarande kvar modifiable med:
-  - `Requested object E_TRKORR is currently locked by user CODEX`
-
-## Slutsats
-
-Det går inte att massfrisläppa alla gamla generated requests blint.
-
-För en del äldre requestar krävs i stället:
-
-1. identifiera och rensa inaktiva/obsoleta testobjekt
-2. släppa tasken
-3. försöka släppa huvudrequesten i ett separat steg
-
-Detta är alltså ett annat städscenario än:
-
-- rena äldre requestar som bara behöver `sortandcompress + newreleasejobs`
-- helt färska requestar som fastnar direkt efter create/write
+Transport cleanup is sometimes repository cleanup first, CTS cleanup second.

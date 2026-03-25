@@ -1,205 +1,135 @@
-# SAP ADT MCP – Teknisk design
+# SAP ADT MCP – Technical Design
 
-## Målbild
+## Goal
 
-Bygg en liten MCP-server som fungerar som ett kontrollerat mellanlager mellan en klient och SAP ADT.
+Build a small MCP server that acts as a controlled integration layer between an MCP-capable client and SAP ABAP Development Tools.
 
-Servern ska:
+The design goal is not generic SAP administration. The goal is practical repository work:
 
-- ansluta till SAP-systemets ADT-endpoint via HTTP
-- autentisera med tekniskt konto eller användaruppgifter
-- översätta ett litet antal säkra MCP-anrop till ADT-anrop
-- returnera repository-innehåll, aktiveringsstatus och fel på ett enkelt format
+- inspect repository objects
+- create and update source-based objects
+- create and update selected DDIC objects
+- activate and run artifacts
+- manage transport requests at a usable level
 
-## Varför ADT och inte SAP GUI
+## Why ADT Instead Of SAP GUI
 
-ADT är rätt integrationsyta eftersom:
+ADT is the correct integration surface because:
 
-- ADT redan är ett maskinellt HTTP-baserat API
-- repository-objekt kan läsas och uppdateras via ADT
-- aktivering och syntaxkontroll i princip går att nå via ADT
-- lösningen blir stabilare och säkrare än GUI-automation
+- it is already an HTTP-based machine interface
+- repository objects can be read and updated through stable object URIs
+- activation, runtime and parts of CTS are available without GUI automation
+- the result is more robust and auditable than desktop scripting
 
-## Föreslagen arkitektur
+## Architecture
 
-### Lager
+1. MCP client
+2. stdio MCP server
+3. `AdtClient`
+4. SAP ADT HTTP endpoints
 
-1. MCP-server
-2. ADT-klientlager
-3. SAP ADT-endpoint
+The MCP server is intentionally thin:
 
-### MCP-server
+- validate inputs
+- enforce package and object-type allowlists
+- translate MCP calls to ADT calls
+- normalize the result into compact JSON text blocks
 
-Ansvar:
+The `AdtClient` owns the protocol details:
 
-- exponera MCP-verktyg
-- validera inparametrar
-- logga säkra revisionshändelser
-- blockera otillåtna objekt eller operationer
+- cookies
+- stateful sessions
+- CSRF
+- lock and unlock flows
+- content types
+- request retry where verification proved it was needed
 
-### ADT-klientlager
+## Object Model Strategy
 
-Ansvar:
+The server distinguishes between:
 
-- hantera HTTP-session
-- CSRF-token om releasen kräver det
-- headers och content types för ADT
-- mappa objekt-URI:er
-- tolka ADT-svar och fel
+- source objects
+  - program
+  - class
+  - DDLS
+  - DCLS
+  - DDLX
+- DDIC source/main objects
+  - table
+  - structure
+- DDIC XML-metadata objects
+  - domain
+  - data element
+  - table type
+- helper-program based flows
+  - search help
 
-### SAP-endpoint
+That distinction is essential. Different ADT areas use different update paths and different activation behavior.
 
-Förutsätter:
+## Security Model
 
-- ICF och ADT är aktiverat
-- användaren har rätt ADT- och repositorybehörigheter
-- HTTPS används
+Security is intentionally narrow:
 
-## Rekommenderad teknik
+- only configured packages may be touched
+- only configured object types may be touched
+- credentials are injected through environment variables
+- the MCP does not try to widen SAP authorizations
+- no GUI automation is attempted
+- mass operations are intentionally limited
 
-Det mest praktiska är Node.js eller TypeScript eftersom:
+## Transport Strategy
 
-- det redan finns öppna ADT-klientbibliotek i Node-ekosystemet
-- MCP-servrar ofta byggs där
-- det är enkelt att kapsla HTTP och JSON-liknande returformat
+The transport strategy is pragmatic:
 
-Alternativ:
+1. use an explicit `transportRequest` if provided
+2. otherwise use `.env` fallback only if still valid and modifiable
+3. otherwise auto-select only if exactly one modifiable workbench request exists
+4. otherwise fail loudly
 
-- Python fungerar också
-- men Node är sannolikt snabbare väg till första användbara version
+Release behavior is also pragmatic:
 
-## Objektmodell i MCP
+- release tasks first
+- then release requests
+- verify final state with a fresh `GET`
+- use the verified `sortandcompress` + `newreleasejobs` sequence for request release
 
-Följande operationer bör finnas i första versionen:
+## Runtime Strategy
 
-### 1. `discover_system`
+The MCP supports two kinds of execution:
 
-Returnerar:
+- `programrun`
+- `classrun`
 
-- system-id
-- klient
-- stöd för discovery
-- stödda ADT-domäner i praktiken
+ABAP Unit is treated as a third runtime category:
 
-### 2. `read_object`
+- metadata discovery
+- raw test execution
+- raw XML result return
 
-Input:
+The project deliberately avoids over-parsing ABAP Unit until a richer result payload is verified consistently.
 
-- objekttyp
-- objektnamn
-- paket eller URI om känt
+## Scope Boundary
 
-Returnerar:
+The latest SAPUI5 demo exercise clarified the correct scope boundary:
 
-- källa
-- metadata
-- objekt-URI
-- ev. senaste aktiveringsstatus
+- backend artifacts for OData and UI5 consumption are in scope
+- BSP upload is out of scope
+- app index recalculation is out of scope
+- Launchpad content maintenance is out of scope
+- PFCG role maintenance is out of scope
 
-### 3. `write_object`
+## Acceptance Criteria
 
-Input:
+The practical acceptance criteria for this project are:
 
-- objekttyp
-- objektnamn
-- nytt innehåll
-- ev. paket
+1. read repository objects reliably
+2. write repository and selected DDIC objects reliably
+3. activate objects without leaving stale inactive artifacts in the normal path
+4. expose runtime execution for programs and classes
+5. expose ABAP Unit in a usable raw form
+6. create and manage transports well enough for real development work
+7. work from an external MCP client such as Gemini CLI
 
-Returnerar:
+## Current Design Verdict
 
-- skrivstatus
-- objekt-URI
-- om objektet uppdaterades eller skapades
-
-### 4. `activate_object`
-
-Input:
-
-- objekt-URI eller objekttyp + namn
-
-Returnerar:
-
-- aktiveringsstatus
-- feltext
-- loggreferenser
-
-### 5. `get_activation_log`
-
-Input:
-
-- objekt-URI
-- eller ett aktiverings-id
-
-Returnerar:
-
-- syntaxfel
-- rad/kolumn om tillgängligt
-- beroendeobjekt som blockerar
-
-## Objekt som bör stödjas först
-
-1. klass
-2. program
-3. CDS DDLS
-4. DCLS
-5. DDLX
-
-Skäl:
-
-- de matchar era vanligaste projekt
-- de räcker långt för AI-assisterad ABAP-utveckling
-
-## Transport- och låsstrategi
-
-Första versionen bör inte försöka lösa transporthantering fullt ut.
-
-I stället:
-
-- skriv bara i redan existerande utvecklingsobjekt
-- eller skriv i en sandlåda/egen package
-- returnera tydligt om objektet är låst
-
-## Rekommenderad implementation i faser
-
-### Fas 1
-
-- discovery
-- read object
-
-### Fas 2
-
-- write object
-- activate object
-- activation log
-
-### Fas 3
-
-- list package objects
-- bulk read
-- enklare dependency-insikt
-
-### Fas 4
-
-- transportstöd
-- checks/run-resultat
-- mer avancerad objektupplösning
-
-## Acceptanskriterier för första version
-
-1. kunna läsa en klass eller DDLS via namn
-2. kunna skriva tillbaka ändrat källinnehåll
-3. kunna aktivera objektet
-4. kunna hämta tillbaka syntaxfel med begripligt felmeddelande
-5. kunna begränsa vilka paket/objekttyper som får ändras
-
-## Praktisk slutsats
-
-Detta är genomförbart som ett mindre integrationsprojekt.
-
-Den viktigaste designprincipen är:
-
-- håll MCP-ytan smal
-- håll behörigheter hårda
-- börja med läs/skriv/aktivera
-
-Det räcker långt för verklig nytta.
+The design is now proven for real SAP backend development work. The remaining gaps are mostly at the edge of the intended scope, not at its center.

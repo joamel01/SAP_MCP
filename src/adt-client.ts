@@ -24,6 +24,7 @@ import type {
   AdtCreateTableInput,
   AdtCreateTableTypeInput,
   AdtDeleteObjectInput,
+  AdtRunAbapUnitInput,
   DeletableObjectType,
   AdtLockResult,
   AdtResponseSummary,
@@ -188,6 +189,61 @@ export class AdtClient {
         session: { cookies: new Map() },
       },
     );
+  }
+
+  async getAbapUnitMetadata(): Promise<AdtResponseSummary> {
+    return this.request("GET", "/abapunit/metadata");
+  }
+
+  async runAbapUnit(input: AdtRunAbapUnitInput): Promise<AdtResponseSummary> {
+    const objectType = input.objectType;
+    const resolvedUri = this.resolveObjectUri(objectType, input.objectName, input.uri);
+    const definitionUri = this.toDefinitionIdentifierUri(
+      objectType,
+      input.objectName,
+      resolvedUri,
+    );
+    const objectName = input.objectName ?? this.extractObjectNameFromUri(definitionUri);
+    const objectReferenceType = objectType === "class" ? "CLAS/OC" : "PROG/P";
+    const body =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<aunit:runConfiguration xmlns:aunit="http://www.sap.com/adt/aunit" xmlns:adtcore="http://www.sap.com/adt/core">` +
+      `<external><coverage active="false"/></external>` +
+      `<options>` +
+      `<uriType value="semantic"/>` +
+      `<testDeterminationStrategy appendAssignedTestsPreview="true"` +
+      ` assignedTests="${input.assignedTests ?? false}"` +
+      ` sameProgram="${input.sameProgram ?? true}"/>` +
+      `<testRiskLevels` +
+      ` critical="${input.criticalRiskLevel ?? true}"` +
+      ` dangerous="${input.dangerousRiskLevel ?? true}"` +
+      ` harmless="${input.harmlessRiskLevel ?? true}"/>` +
+      `<testDurations` +
+      ` long="${input.longDuration ?? true}"` +
+      ` medium="${input.mediumDuration ?? true}"` +
+      ` short="${input.shortDuration ?? true}"/>` +
+      `<withNavigationUri enabled="${input.withNavigationUri ?? false}"/>` +
+      `</options>` +
+      `<adtcore:objectSets>` +
+      `<objectSet kind="inclusive">` +
+      `<adtcore:objectReferences>` +
+      `<adtcore:objectReference adtcore:uri="${this.toAbsoluteAdtUri(definitionUri)}"` +
+      ` adtcore:type="${objectReferenceType}"` +
+      ` adtcore:name="${xmlEscape(normalizeObjectName(objectName))}"/>` +
+      `</adtcore:objectReferences>` +
+      `</objectSet>` +
+      `</adtcore:objectSets>` +
+      `</aunit:runConfiguration>`;
+
+    return this.request("POST", "/abapunit/testruns", {
+      body,
+      headers: {
+        "Content-Type": "application/vnd.sap.adt.abapunit.testruns.config.v4+xml",
+        Accept: "application/vnd.sap.adt.abapunit.testruns.result.v2+xml",
+      },
+      stateful: true,
+      session: { cookies: new Map() },
+    });
   }
 
   async writeObject(input: WriteObjectInput): Promise<AdtResponseSummary> {
@@ -906,6 +962,13 @@ export class AdtClient {
 
   private isTransientActivationStartFailure(response: AdtResponseSummary): boolean {
     return response.status === 451 && response.body.includes("connection closed (no data)");
+  }
+
+  private extractObjectNameFromUri(uri: string): string {
+    const cleanedUri = uri.replace(/^https?:\/\/[^/]+/, "").replace(/^\/sap\/bc\/adt/, "");
+    const segments = cleanedUri.split("/").filter(Boolean);
+    const lastSegment = segments.at(-1) ?? "";
+    return normalizeObjectName(decodeURIComponent(lastSegment));
   }
 
   async lock(uri: string): Promise<AdtLockResult> {

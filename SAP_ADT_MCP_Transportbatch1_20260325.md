@@ -1,38 +1,16 @@
-# SAP ADT MCP – Transportbatch 1 2026-03-25
+# SAP ADT MCP – Transport Batch 1 2026-03-25
 
-## Syfte
+## Scope
 
-Första försiktiga batchen fokuserade på äldre en-objektsrequestar med rena FM-probeprogram.
+First cautious cleanup batch against older CODEX transport requests.
 
-Valda requestar:
+## What Was Verified
 
-- `A4HK900142`
-- `A4HK900143`
-- `A4HK900146`
-- `A4HK900148`
-- `A4HK900152`
+- task release worked
+- request release did not always follow automatically
+- `releasejobs` was not sufficient for reliable request release
+- a successful-looking ADT response was not always proof of actual release
 
-Tillhörande tasks:
+## Key Lesson
 
-- `A4HK900144`
-- `A4HK900145`
-- `A4HK900147`
-- `A4HK900149`
-- `A4HK900153`
-
-## Resultat
-
-Verifierat:
-
-- task-release fungerade för samtliga fem tasks
-- den dåvarande request-release-vägen var fel
-  - MCP:n använde då ännu inte den slutligt verifierade sekvensen `sortandcompress + newreleasejobs`
-- batchen ska därför läsas som ett mellanresultat, inte som slutlig slutsats om request-release
-
-## Slutsats
-
-Efter senare verifiering gäller i stället:
-
-- task-release fungerar
-- request-release fungerar för äldre modifiable requests när rätt sekvens används
-- helt färska requests kan fortfarande fastna i `E_TRKORR` direkt efter create/write
+The final request state must always be confirmed with a fresh request read. This was the batch that made that rule explicit.

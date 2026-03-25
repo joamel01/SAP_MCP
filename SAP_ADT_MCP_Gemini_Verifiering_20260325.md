@@ -1,38 +1,47 @@
-# SAP ADT MCP – Gemini-verifiering 2026-03-25
+# SAP ADT MCP – Gemini Verification 2026-03-25
 
-## Syfte
+## Goal
 
-Verifiera att `SAP_ADT_MCP` fungerar från en extern MCP-klient och inte bara från lokala testscript.
+Verify that the MCP works from an external MCP client and not only from local direct scripts.
 
-## Klient
+## Verified Scenario
 
-- Gemini CLI
+Gemini CLI successfully used the MCP to create a realistic backend chain, including:
 
-## Verifierat scenario
+- transport creation
+- package creation
+- CDS creation
+- table function creation
+- AMDP class creation
+- service class creation
+- executable program creation
 
-Från Gemini CLI genomfördes ett komplett skapandespår via MCP-servern:
+Verified package:
 
-1. en transport skapades
-2. ett nytt paket skapades
-3. CDS-vy(er) skapades
-4. en table function skapades
-5. en AMDP-klass skapades
-6. en vanlig klass som konsumerar CDS-lagret skapades
-7. ett program som använder klassen skapades
-
-Verifierat paket:
 - `ZGEMINI_MCP_DEMO`
 
-## Slutsats
+## Qualitative Gemini Feedback
 
-Detta verifierar att MCP-servern:
+Gemini's evaluation can be summarized as:
 
-- startar korrekt som stdio-server för extern klient
-- kan användas av annan MCP-konsument än den lokala testmiljön
-- fungerar för ett helt ABAP-utvecklingsflöde med både CDS, AMDP och klassisk ABAP
+- broad coverage across the ABAP development lifecycle
+- clear enough dependency failure messages to allow self-correction
+- `write_object` with `activateAfterWrite` is especially effective
+- strong potential for automating boilerplate, tests and data modeling
 
-Det höjer projektets status från intern verifierad implementation till externt verifierad praktisk lösning.
+Gemini also identified the next highest-value areas correctly:
 
-## Bedömning
+- ABAP Unit
+- DCL-heavy scenarios
 
-Efter denna körning bedöms `SAP_ADT_MCP` vara tillräckligt stabil för fortsatt praktisk användning i utvecklingsmiljö, med de redan dokumenterade begränsningarna kring vissa transport-edge-cases.
+## Interpretation
+
+This is important because it confirms three things:
+
+1. the MCP works from a real external client
+2. the tool descriptions and output shape are understandable to another AI agent
+3. the project is no longer only a local technical prototype
+
+## Follow-Up Finding
+
+The later SAPUI5 demo work reinforced the same conclusion from another angle: the MCP is especially strong when it is used to prepare backend artifacts that another toolchain or user then consumes.

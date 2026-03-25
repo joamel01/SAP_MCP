@@ -235,6 +235,21 @@ export interface AdtRunClassInput {
   profilerId?: string;
 }
 
+export interface AdtRunAbapUnitInput {
+  objectType: "class" | "program";
+  objectName?: string;
+  uri?: string;
+  assignedTests?: boolean;
+  sameProgram?: boolean;
+  withNavigationUri?: boolean;
+  harmlessRiskLevel?: boolean;
+  dangerousRiskLevel?: boolean;
+  criticalRiskLevel?: boolean;
+  shortDuration?: boolean;
+  mediumDuration?: boolean;
+  longDuration?: boolean;
+}
+
 export interface AdtDeleteObjectInput {
   objectType: DeletableObjectType;
   objectName?: string;

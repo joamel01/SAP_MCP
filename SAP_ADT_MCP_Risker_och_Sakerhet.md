@@ -1,93 +1,108 @@
-# SAP ADT MCP – Risker och säkerhet
+# SAP ADT MCP – Risks And Security
 
-## Huvudrisker
+## Security Principles
 
-### 1. För bred skrivbehörighet
+This project is intentionally restrictive:
 
-Om MCP-servern får skriva fritt i repositoryt blir riskytan onödigt stor.
+- use package allowlists
+- use object-type allowlists
+- prefer explicit transport requests
+- avoid destructive bulk actions
+- keep the MCP surface smaller than the raw SAP surface
 
-Motåtgärd:
+## Main Risks
 
-- allowlist på package-nivå
-- allowlist på objekttyp
-- eget tekniskt konto för utveckling
+### 1. Writing Into The Wrong Package
 
-### 2. Bristande spårbarhet
+Risk:
 
-Om servern gör ändringar utan tydlig logg blir det svårt att granska i efterhand.
+- an MCP client can create technically valid but organizationally wrong artifacts
 
-Motåtgärd:
+Mitigation:
 
-- logga varje `write`
-- logga varje `activate`
-- inkludera tid, objekt och användare/systemidentitet
+- enforce `SAP_ADT_ALLOWED_PACKAGES`
+- prefer explicit package assignment in client prompts
 
-### 3. Lås- och transportkonflikter
+### 2. Writing Into The Wrong Transport
 
-ADT-skrivning kan kollidera med vanlig utveckling i ADT.
+Risk:
 
-Motåtgärd:
+- a stale fallback transport request can cause CTS confusion
 
-- börja i ren utvecklingsmiljö
-- skriv bara i ett avgränsat package
-- avstå initialt från transportautomation
+Mitigation:
 
-### 4. Versions- och releasevariation
+- explicit `transportRequest` wins
+- fallback request is validated before use
+- auto-selection only happens if exactly one modifiable workbench request exists
 
-Alla ADT-endpoints beter sig inte exakt lika mellan releaser.
+### 3. Inactive Artifact Residue
 
-Motåtgärd:
+Risk:
 
-- börja med de enklaste objekttyperna
-- använd ADT communication log som referens
-- bygg felhantering som visar råa svar vid behov
+- create/write/activate flows can leave inactive residue if activation is not handled correctly
 
-## Rekommenderad säkerhetsmodell
+Mitigation:
 
-### Konto
+- verified activation through `POST /activation/runs`
+- retry logic for known transient ADT failures
+- explicit documentation of cleanup behavior
 
-- separat tekniskt användarkonto
-- minsta möjliga behörighet
+### 4. Search Help Special Cases
 
-### Nät
+Risk:
 
-- intern åtkomst
-- HTTPS
-- gärna IP- eller nätsegmentsbegränsning
+- search help creation behaves differently from plain source-based objects
 
-### Funktionsbegränsning
+Mitigation:
 
-Tillåt först bara:
+- use the verified helper-program flow only
+- keep the documented scope narrow
 
-- read
-- write
-- activate
-- activation log
+### 5. ABAP Unit Over-Interpretation
 
-Tillåt inte:
+Risk:
 
-- transportfrisläppning
-- repository-rensning
-- massändringar
+- clients may assume fully parsed, semantically rich test results where only raw XML is currently verified
 
-## Go / No-Go
+Mitigation:
 
-### Go
+- return raw XML plus simple counters
+- document the current limitation explicitly
 
-Om ni kan acceptera:
+### 6. Scope Creep Into SAP Administration
 
-- en liten intern integrationskomponent
-- ett tekniskt konto
-- avgränsade packages
+Risk:
 
-### No-Go
+- users may expect the MCP to cover BSP upload, Launchpad maintenance or role administration
 
-Om ni kräver:
+Mitigation:
 
-- full produktionsnära transporthantering direkt
-- bred repository-skrivning utan begränsning
-- noll säkerhetsgranskning
+- document the scope boundary
+- keep ADT-focused functionality separate from UI and security administration work
 
-## Slutsats
+## Verified Safe Boundaries
 
-Lösningen är genomförbar, men bör införas som ett kontrollerat utvecklingsverktyg, inte som en generell SAP-admin-kanal.
+The project is verified for:
+
+- repository-centric ABAP development
+- selected DDIC generation
+- transport request handling at developer level
+- runtime execution
+- ABAP Unit metadata and raw execution
+
+The project is not positioned as:
+
+- a generic admin tool
+- a GUI automation framework
+- a replacement for SAP Launchpad or PFCG administration
+
+## Recommendation
+
+Use the MCP for what it now proves well:
+
+- build backend artifacts
+- activate and run them
+- inspect transport state
+- automate repetitive repository work
+
+Keep UI repository upload and Launchpad administration outside the MCP unless a separate, equally well-verified integration layer is added later.

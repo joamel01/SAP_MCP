@@ -12,7 +12,7 @@ const adtClient = new AdtClient(config);
 
 const server = new McpServer({
   name: "sap-adt-mcp",
-  version: "1.0.0",
+  version: "1.2.0",
 });
 
 function textResult(text: string) {
@@ -223,6 +223,94 @@ server.tool(
       {
         ...response,
         body: trimBody(response.body),
+      },
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
+  "sap_adt_get_abap_unit_metadata",
+  "Read SAP ADT ABAP Unit metadata for the current system, including supported object types and execution limits.",
+  {},
+  async () => {
+    const response = await adtClient.getAbapUnitMetadata();
+
+    return textResult(JSON.stringify(
+      {
+        ...response,
+        body: trimBody(response.body),
+      },
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
+  "sap_adt_run_abap_unit",
+  "Run ABAP Unit via SAP ADT for one class or executable program and return the raw XML result plus simple counters.",
+  {
+    objectType: z.enum(["class", "program"]),
+    objectName: z.string().optional(),
+    uri: z.string().optional(),
+    packageName: z.string().optional(),
+    assignedTests: z.boolean().optional(),
+    sameProgram: z.boolean().optional(),
+    withNavigationUri: z.boolean().optional(),
+    harmlessRiskLevel: z.boolean().optional(),
+    dangerousRiskLevel: z.boolean().optional(),
+    criticalRiskLevel: z.boolean().optional(),
+    shortDuration: z.boolean().optional(),
+    mediumDuration: z.boolean().optional(),
+    longDuration: z.boolean().optional(),
+  },
+  async ({
+    objectType,
+    objectName,
+    uri,
+    packageName,
+    assignedTests,
+    sameProgram,
+    withNavigationUri,
+    harmlessRiskLevel,
+    dangerousRiskLevel,
+    criticalRiskLevel,
+    shortDuration,
+    mediumDuration,
+    longDuration,
+  }) => {
+    assertAllowedPackage(config, packageName);
+
+    const response = await adtClient.runAbapUnit({
+      objectType,
+      objectName,
+      uri,
+      assignedTests,
+      sameProgram,
+      withNavigationUri,
+      harmlessRiskLevel,
+      dangerousRiskLevel,
+      criticalRiskLevel,
+      shortDuration,
+      mediumDuration,
+      longDuration,
+    });
+
+    const body = trimBody(response.body);
+    const testClassCount = (body.match(/<testClass\b/g) ?? []).length;
+    const testMethodCount = (body.match(/<testMethod\b/g) ?? []).length;
+    const alertCount = (body.match(/<alert\b/g) ?? []).length;
+
+    return textResult(JSON.stringify(
+      {
+        status: response.status,
+        statusText: response.statusText,
+        testClassCount,
+        testMethodCount,
+        alertCount,
+        body,
       },
       null,
       2,
