@@ -1,0 +1,22 @@
+{
+  "class": {
+    "label": "ABAP class source",
+    "uriTemplate": "/oo/classes/{objectName}/source/main"
+  },
+  "program": {
+    "label": "ABAP program source",
+    "uriTemplate": "/programs/programs/{objectName}/source/main"
+  },
+  "ddls": {
+    "label": "CDS DDLS source",
+    "uriTemplate": "/ddic/ddl/sources/{objectName}/source/main"
+  },
+  "dcls": {
+    "label": "CDS DCL source",
+    "uriTemplate": "/acm/dcl/sources/{objectName}/source/main"
+  },
+  "ddlx": {
+    "label": "CDS metadata extension source",
+    "uriTemplate": "/ddic/ddlx/sources/{objectName}/source/main"
+  }
+}

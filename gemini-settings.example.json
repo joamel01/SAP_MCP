@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sap-adt": {
+      "command": "/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/scripts/run-sap-adt-mcp.sh",
+      "args": []
+    }
+  }
+}
