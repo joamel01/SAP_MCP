@@ -6,7 +6,7 @@ This document gives short, copy-friendly examples for the MCP tools that have pr
 
 ## `sap_adt_search_docs`
 
-Use when you want to find verified examples, known limitations or implementation notes in this repository's own Markdown documentation.
+Use when you want to find verified examples, known limitations or implementation notes in the MCP's own Markdown documentation.
 
 Example:
 
@@ -25,6 +25,26 @@ Optional narrowing:
   "fileFilter": "Transport",
   "maxResults": 3
 }
+```
+
+Optional workspace search:
+
+```json
+{
+  "query": "launchpad role odata",
+  "scope": "workspace",
+  "maxResults": 5
+}
+```
+
+## `sap_adt_get_workspace_roots`
+
+Use when you want to know which workspace roots the current MCP client exposed to the server.
+
+Example:
+
+```json
+{}
 ```
 
 ## `sap_adt_activate_object_set`

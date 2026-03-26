@@ -1,6 +1,6 @@
 {
   "name": "sap-adt-mcp",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
   "description": "MCP server for SAP ADT repository access",
@@ -11,7 +11,8 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "smoke": "tsx src/smoke-test.ts",
     "verify:abapunit": "node dist/verify-abap-unit.js",
-    "verify:abapunit-live": "node dist/verify-abap-unit-live.js --transportRequest=${SAP_ADT_VERIFY_TRANSPORT_REQUEST}"
+    "verify:abapunit-live": "node dist/verify-abap-unit-live.js --transportRequest=${SAP_ADT_VERIFY_TRANSPORT_REQUEST}",
+    "verify:reference": "node dist/verify-reference-suite.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.1",

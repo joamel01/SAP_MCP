@@ -1,6 +1,6 @@
 # SAP ADT MCP – Implementation
 
-This document describes the `1.3.0` working baseline for the SAP ADT MCP.
+This document describes the `1.4.0` working baseline for the SAP ADT MCP.
 
 The implementation was practically verified against `ABAP Cloud Developer Trial 2023 for Docker`.
 
@@ -17,7 +17,25 @@ The implementation was practically verified against `ABAP Cloud Developer Trial 
 - `.env.example`
   reusable template for new SAP systems
 
-## What Is New In 1.3.0
+## What Is New In 1.4.0
+
+Version `1.4.0` focuses on stabilization and repeatable verification after the major capability growth of `1.3.0`.
+
+New in this version:
+
+- `sap_adt_get_workspace_roots`
+- `sap_adt_search_docs` now supports:
+  - project-local Markdown search
+  - optional workspace-root Markdown search when the client supports roots
+- one lightweight reference-suite script now exists:
+  - `src/verify-reference-suite.ts`
+  - `npm run verify:reference`
+- one reference-suite document now exists:
+  - `SAP_ADT_MCP_Reference_Suite.md`
+- one release note now exists for this stabilization baseline:
+  - `SAP_ADT_MCP_Release_1.4.0.md`
+
+## What Was New In 1.3.0
 
 Version `1.3.0` consolidates the newest findings from activation hardening, ABAP Unit verification and the SAPUI5 backend scenario.
 

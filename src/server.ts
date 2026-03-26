@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { AdtClient } from "./adt-client.js";
 import { assertAllowedObjectType, assertAllowedPackage } from "./authorization.js";
@@ -23,7 +24,7 @@ const adtClient = new AdtClient(config);
 
 const server = new McpServer({
   name: "sap-adt-mcp",
-  version: "1.3.0",
+  version: "1.4.0",
 });
 
 const structuredContentEnabled = process.env.SAP_ADT_MCP_RESPONSE_NO_STRUCTURED_CONTENT !== "true";
@@ -59,6 +60,8 @@ function textResult(text: string) {
 type TransportClassification = "keep" | "release" | "delete" | "review";
 
 const localDocsRoot = process.cwd();
+const maxWorkspaceMarkdownFiles = 200;
+const maxWorkspaceSearchDepth = 4;
 
 async function listSearchableDocFiles(): Promise<string[]> {
   const entries = await readdir(localDocsRoot, { withFileTypes: true });
@@ -69,6 +72,50 @@ async function listSearchableDocFiles(): Promise<string[]> {
     .filter((name) => name !== "readme_sv.md")
     .filter((name) => !name.toLowerCase().startsWith("todo_"))
     .sort((left, right) => left.localeCompare(right));
+}
+
+function tryFileUriToPath(uri: string): string | undefined {
+  if (!uri.startsWith("file://")) {
+    return undefined;
+  }
+
+  try {
+    return fileURLToPath(uri);
+  } catch {
+    return undefined;
+  }
+}
+
+async function listWorkspaceMarkdownFiles(
+  rootPath: string,
+  currentDepth = 0,
+  collected: string[] = [],
+): Promise<string[]> {
+  if (currentDepth > maxWorkspaceSearchDepth || collected.length >= maxWorkspaceMarkdownFiles) {
+    return collected;
+  }
+
+  const entries = await readdir(rootPath, { withFileTypes: true });
+  for (const entry of entries) {
+    if (collected.length >= maxWorkspaceMarkdownFiles) {
+      break;
+    }
+
+    const fullPath = path.join(rootPath, entry.name);
+    if (entry.isDirectory()) {
+      if ([".git", "node_modules", "dist", "coverage"].includes(entry.name)) {
+        continue;
+      }
+      await listWorkspaceMarkdownFiles(fullPath, currentDepth + 1, collected);
+      continue;
+    }
+
+    if (entry.isFile() && entry.name.endsWith(".md")) {
+      collected.push(fullPath);
+    }
+  }
+
+  return collected;
 }
 
 function classifyTransportRequest(
@@ -105,49 +152,148 @@ function classifyTransportRequest(
 }
 
 server.tool(
+  "sap_adt_get_workspace_roots",
+  "Return the current MCP client workspace roots when the client supports the roots capability.",
+  {},
+  async () => {
+    try {
+      const response = await server.server.listRoots();
+      const roots = response.roots.map((root) => ({
+        uri: root.uri,
+        name: root.name,
+        localPath: tryFileUriToPath(root.uri),
+      }));
+
+      return textResult(JSON.stringify(
+        {
+          supported: true,
+          rootCount: roots.length,
+          roots,
+        },
+        null,
+        2,
+      ));
+    } catch (error) {
+      return textResult(JSON.stringify(
+        {
+          supported: false,
+          rootCount: 0,
+          roots: [],
+          message: error instanceof Error ? error.message : String(error),
+        },
+        null,
+        2,
+      ));
+    }
+  },
+);
+
+server.tool(
   "sap_adt_search_docs",
-  "Search the local SAP_ADT_MCP Markdown documentation and examples for matching keywords, examples and known limitations.",
+  "Search SAP_ADT_MCP documentation and, optionally, Markdown files under the MCP client's workspace roots.",
   {
     query: z.string(),
     maxResults: z.number().int().min(1).max(20).optional(),
     fileFilter: z.string().optional(),
+    scope: z.enum(["project", "workspace", "both"]).optional(),
   },
-  async ({ query, maxResults, fileFilter }) => {
+  async ({ query, maxResults, fileFilter, scope }) => {
     const terms = tokenizeSearchQuery(query);
-    const files = await listSearchableDocFiles();
-    const filteredFiles = fileFilter
-      ? files.filter((fileName) => fileName.toLowerCase().includes(fileFilter.toLowerCase()))
-      : files;
+    const searchScope = scope ?? "project";
 
     const results: Array<{
+      scope: "project" | "workspace";
       fileName: string;
       filePath: string;
       title: string;
       score: number;
       snippets: string[];
+      rootUri?: string;
     }> = [];
 
-    for (const fileName of filteredFiles) {
-      const filePath = path.join(localDocsRoot, fileName);
-      const content = await readFile(filePath, "utf8");
-      const titleMatch = content.match(/^#\s+(.+)$/m);
-      const title = titleMatch?.[1] ?? fileName;
-      const match = searchLocalDocument(content, query);
-      if (!match) {
-        continue;
+    let searchedFileCount = 0;
+
+    if (searchScope === "project" || searchScope === "both") {
+      const files = await listSearchableDocFiles();
+      const filteredFiles = fileFilter
+        ? files.filter((fileName) => fileName.toLowerCase().includes(fileFilter.toLowerCase()))
+        : files;
+
+      for (const fileName of filteredFiles) {
+        const filePath = path.join(localDocsRoot, fileName);
+        const content = await readFile(filePath, "utf8");
+        const titleMatch = content.match(/^#\s+(.+)$/m);
+        const title = titleMatch?.[1] ?? fileName;
+        const match = searchLocalDocument(content, query);
+        searchedFileCount += 1;
+        if (!match) {
+          continue;
+        }
+
+        const titleBonus = terms.reduce((sum, term) => (
+          title.toLowerCase().includes(term) ? sum + 6 : sum
+        ), 0);
+
+        results.push({
+          scope: "project",
+          fileName,
+          filePath,
+          title,
+          score: match.score + titleBonus,
+          snippets: match.snippets,
+        });
       }
+    }
 
-      const titleBonus = terms.reduce((sum, term) => (
-        title.toLowerCase().includes(term) ? sum + 6 : sum
-      ), 0);
+    let workspaceRootsSupported = false;
+    let workspaceRootsMessage: string | undefined;
+    let workspaceRootCount = 0;
 
-      results.push({
-        fileName,
-        filePath,
-        title,
-        score: match.score + titleBonus,
-        snippets: match.snippets,
-      });
+    if (searchScope === "workspace" || searchScope === "both") {
+      try {
+        const rootResponse = await server.server.listRoots();
+        workspaceRootsSupported = true;
+        workspaceRootCount = rootResponse.roots.length;
+
+        for (const root of rootResponse.roots) {
+          const localRootPath = tryFileUriToPath(root.uri);
+          if (!localRootPath) {
+            continue;
+          }
+
+          const workspaceFiles = await listWorkspaceMarkdownFiles(localRootPath);
+          const filteredWorkspaceFiles = fileFilter
+            ? workspaceFiles.filter((filePath) => path.basename(filePath).toLowerCase().includes(fileFilter.toLowerCase()))
+            : workspaceFiles;
+
+          for (const filePath of filteredWorkspaceFiles) {
+            const content = await readFile(filePath, "utf8");
+            const titleMatch = content.match(/^#\s+(.+)$/m);
+            const title = titleMatch?.[1] ?? path.basename(filePath);
+            const match = searchLocalDocument(content, query);
+            searchedFileCount += 1;
+            if (!match) {
+              continue;
+            }
+
+            const titleBonus = terms.reduce((sum, term) => (
+              title.toLowerCase().includes(term) ? sum + 6 : sum
+            ), 0);
+
+            results.push({
+              scope: "workspace",
+              fileName: path.basename(filePath),
+              filePath,
+              title,
+              score: match.score + titleBonus,
+              snippets: match.snippets,
+              rootUri: root.uri,
+            });
+          }
+        }
+      } catch (error) {
+        workspaceRootsMessage = error instanceof Error ? error.message : String(error);
+      }
     }
 
     results.sort((left, right) => {
@@ -160,8 +306,12 @@ server.tool(
     return textResult(JSON.stringify(
       {
         query,
+        scope: searchScope,
         terms,
-        searchedFileCount: filteredFiles.length,
+        workspaceRootsSupported,
+        workspaceRootCount,
+        workspaceRootsMessage,
+        searchedFileCount,
         resultCount: Math.min(results.length, maxResults ?? 5),
         results: results.slice(0, maxResults ?? 5),
       },

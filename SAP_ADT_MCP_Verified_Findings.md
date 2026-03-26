@@ -444,6 +444,35 @@ The same comparison also led to one small but immediately useful local capabilit
   - known edge cases
   - documented scope boundaries
 
+The stabilization work after `1.3.0` also added verified workspace awareness:
+
+- the MCP can now request client roots through `roots/list`
+- this is exposed through:
+  - `sap_adt_get_workspace_roots`
+- `sap_adt_search_docs` can now optionally search Markdown files under workspace roots when:
+  - the client supports roots
+  - the roots are local `file://` URIs accessible to the MCP process
+- current deliberate limits:
+  - Markdown only
+  - bounded recursion depth
+  - bounded file count
+  - skips typical heavy folders such as `.git`, `node_modules` and `dist`
+
+One lightweight regression layer was also added:
+
+- `npm run verify:reference`
+- current purpose:
+  - discovery
+  - read program
+  - run program
+  - read class
+  - run class
+  - optional interface/function-group/function-module reads
+- this is now the preferred quick post-change verification path in addition to:
+  - `npm run check`
+  - `npm run build`
+  - `npm run smoke`
+
 ## 11. Overall Conclusion
 
 The project is no longer only a technical prototype. It is a practically verified SAP ADT MCP for real repository-centric ABAP development, with a clearly documented edge around non-ADT SAP administration work.

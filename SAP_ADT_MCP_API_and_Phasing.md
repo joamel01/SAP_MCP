@@ -4,6 +4,7 @@
 
 ### Discovery And Read
 
+- `sap_adt_get_workspace_roots`
 - `sap_adt_search_docs`
 - `sap_adt_discover`
 - `sap_adt_read_object`
@@ -75,6 +76,7 @@ The tool surface is designed for AI clients:
 - optional direct ADT URI where needed
 - optional `transportRequest`
 - no attempt to emulate the full ADT or SAP GUI surface
+- a small amount of workspace-awareness where MCP clients already support roots
 
 ## Output Philosophy
 

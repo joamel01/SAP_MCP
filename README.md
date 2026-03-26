@@ -6,13 +6,14 @@ The project is now maintained in English. The earlier Swedish overview is preser
 
 ## Status
 
-Version `1.3.0` is the current working baseline.
+Version `1.4.0` is the current working baseline.
 
 The practical verification work in this repository was carried out against `ABAP Cloud Developer Trial 2023 for Docker`.
 
 The MCP now covers the main repository-centric SAP ADT workflows needed by an AI coding agent:
 
 - ADT discovery
+- workspace-roots lookup when the MCP client supports roots
 - read object source and metadata
 - write object source with stateful session handling
 - lock and unlock flows
@@ -34,6 +35,7 @@ The MCP now covers the main repository-centric SAP ADT workflows needed by an AI
   - table types
 - persistent user-parameter read/update through verified helper flows
 - local Markdown documentation and example search
+- optional workspace Markdown search through client roots
 - search help creation through the verified helper-program flow
 - ABAP Unit metadata lookup
 - ABAP Unit execution for one class or executable program
@@ -42,7 +44,23 @@ The MCP now covers the main repository-centric SAP ADT workflows needed by an AI
 - CLI-friendly runtime output summaries for `programrun` and `classrun`
 - one-step post-activation verification for runnable programs and classrun classes
 
-## Newly Consolidated Findings In 1.3.0
+## Newly Consolidated Findings In 1.4.0
+
+This version closes the main stabilization loop after the large feature-expansion phase.
+
+New in this version:
+
+- `sap_adt_get_workspace_roots`
+- `sap_adt_search_docs` now supports:
+  - project docs
+  - optional workspace-root Markdown search
+- a light regression bundle now exists through:
+  - `npm run verify:reference`
+  - [SAP_ADT_MCP_Reference_Suite.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Reference_Suite.md)
+- the project now has an explicit stabilization note:
+  - [SAP_ADT_MCP_Release_1.4.0.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Release_1.4.0.md)
+
+## Previously Consolidated Findings In 1.3.0
 
 This version incorporates the most important lessons from the latest verification rounds:
 
@@ -190,6 +208,8 @@ Historical filenames are preserved, but the document contents are now in English
 - [SAP_ADT_MCP_Auto_Verify.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Auto_Verify.md)
 - [SAP_ADT_MCP_Examples.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Examples.md)
 - [SAP_ADT_MCP_Demo_Package.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Demo_Package.md)
+- [SAP_ADT_MCP_Reference_Suite.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Reference_Suite.md)
+- [SAP_ADT_MCP_Release_1.4.0.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Release_1.4.0.md)
 - [SAP_ADT_MCP_E2E_Test_20260325.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_E2E_Test_20260325.md)
 - [SAP_ADT_MCP_Gemini_Verification_20260325.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Gemini_Verification_20260325.md)
 - [SAP_ADT_MCP_Transport_Handling.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Transport_Handling.md)
@@ -214,6 +234,12 @@ Optional defaults:
 - `SAP_ADT_DEFAULT_ABAP_LANGUAGE_VERSION`
 - `SAP_ADT_DEFAULT_SOFTWARE_COMPONENT`
 - `SAP_ADT_DEFAULT_SOFTWARE_COMPONENT_DESCRIPTION`
+- `SAP_ADT_REFERENCE_PACKAGE`
+- `SAP_ADT_REFERENCE_PROGRAM`
+- `SAP_ADT_REFERENCE_CLASS`
+- `SAP_ADT_REFERENCE_INTERFACE`
+- `SAP_ADT_REFERENCE_FUNCTION_GROUP`
+- `SAP_ADT_REFERENCE_FUNCTION_MODULE`
 
 ## Gemini CLI
 
@@ -237,6 +263,15 @@ ABAP Unit verification bundle:
   - `node dist/verify-abap-unit-live.js --transportRequest=<WORKBENCH_REQUEST>`
 - reference document:
   - [SAP_ADT_MCP_ABAP_Unit_Verification.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_ABAP_Unit_Verification.md)
+
+Reference suite:
+
+- build:
+  - `npm run build`
+- run:
+  - `npm run verify:reference`
+- document:
+  - [SAP_ADT_MCP_Reference_Suite.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Reference_Suite.md)
 
 ## Scope
 
