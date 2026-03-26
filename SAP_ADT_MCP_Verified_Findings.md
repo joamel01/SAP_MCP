@@ -84,6 +84,23 @@ Additional verified DDIC findings:
 - `programrun` works and returns plain text output
 - `classrun` works after the implementation details were corrected
 - runtime results are suitable for AI consumption because the MCP trims and normalizes the payloads
+- runtime output parsing is now verified at a more helpful CLI level:
+  - `Z_FLIGHT_DEMO_REPORT` is recognized as `tabular_text`
+  - the parser extracts:
+    - table title
+    - headers
+    - first result rows
+  - `ZCL_MCP_CLASSRUN_DEMO` is recognized as `key_value_lines`
+  - the parser preserves:
+    - leading explanatory lines
+    - structured `keyValues`
+- one higher-level post-activation verification helper now exists:
+  - `sap_adt_auto_verify_object`
+- verified runtime paths used by the helper:
+  - program `Z_FLIGHT_DEMO_REPORT` via `programrun`
+  - class `ZCL_MCP_CLASSRUN_DEMO` via `classrun`
+- verified explicit ABAP Unit path used by the helper:
+  - program `Z_MCP_AUNIT_LV1`
 
 ## 6. Transport Handling
 
@@ -173,6 +190,17 @@ Small-set mass activation is now verified as a separate tool behavior:
   - intentional failure member:
     - `ZCL_MCP_DOES_NOT_EXIST`
 
+Create-time failure normalization is also now verified:
+
+- verified categories:
+  - `already_exists`
+  - `lock_or_transport_error`
+  - `create_failed`
+- verified duplicate-object cases:
+  - program `ZUI5_R_CARRIER_DEMO_TEST`
+  - class `ZCL_FLIGHT_CONSUMER`
+  - DDLS `ZUI5_C_CARRIER_DEMO`
+
 ## 8. External Gemini Verification
 
 Gemini CLI successfully used the MCP to:
@@ -226,12 +254,19 @@ Verified:
 
 Current limitation:
 
-- the custom demo objects in the container still returned empty `runResult` payloads
-- therefore the richer parser is implemented and safe, but live verification of non-empty SAP-side result payloads is still incomplete in this environment
-- a repeatable verification bundle now exists anyway:
-  - live check against one reference object
+- standard and class-based own-test examples can still return empty `runResult` payloads in this environment
+- but one broader live verification path now returns a non-empty payload:
+  - program `Z_MCP_AUNIT_LV1`
+  - local test class `LTC_REPORT`
+  - local test method `BASIC_ASSERTION`
+- class-based sibling object `ZCL_MCP_AUNIT_LV1` still returned empty payloads in the same environment
+- therefore the richer parser is now verified against:
+  - live non-empty ADT payload for a program object
+  - live empty ADT payloads for class objects
   - parser verification against `references/abapunit-junit-sample.xml`
-  - script entry point `npm run verify:abapunit`
+- repeatable verification entries now exist:
+  - `npm run verify:abapunit`
+  - `node dist/verify-abap-unit-live.js --transportRequest=<WORKBENCH_REQUEST>`
 
 ## 10. SAPUI5 Backend Scenario
 

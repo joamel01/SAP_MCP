@@ -36,6 +36,8 @@ The MCP now covers the main repository-centric SAP ADT workflows needed by an AI
 - ABAP Unit execution for one class or executable program
 - ABAP `programrun`
 - ABAP `classrun`
+- CLI-friendly runtime output summaries for `programrun` and `classrun`
+- one-step post-activation verification for runnable programs and classrun classes
 
 ## Newly Consolidated Findings In 1.3.0
 
@@ -43,7 +45,9 @@ This version incorporates the most important lessons from the latest verificatio
 
 - ABAP Unit metadata and execution endpoints are verified and exposed as MCP tools.
 - ABAP Unit payload structure is confirmed, and the MCP now parses structured result summaries when the payload supports it.
-- The current SAP container still returned empty `aunit:runResult` data for the custom demo objects, so rich live parsing could only be verified partially in this environment.
+- Broader live ABAP Unit verification now confirmed one non-empty ADT payload path in this environment:
+  - a program with local test classes returned structured `aunit:runResult` XML
+  - class-based own tests still returned empty payloads in the same container
 - External verification through Gemini CLI confirmed that the MCP is usable from a real third-party MCP client, not only through local direct scripts.
 - A later external Gemini verification round on `1.3.0` confirmed a full runtime chain through `sap_adt_run_class`:
   - AMDP table function returned carrier data
@@ -76,6 +80,11 @@ The following behavior is verified against SAP and reflected in the implementati
   - `stopOnError=true` for first-failure stop behavior
   - `stopOnError=false` for full per-object result collection
 - external Gemini feedback confirmed that this mass-activation flow is the biggest practical ergonomics improvement in `1.3.0`
+- `sap_adt_run_program` and `sap_adt_run_class` now return:
+  - raw output
+  - `parsedOutput`
+  - table-like summaries for plain-text list output when feasible
+  - key/value summaries for classrun-style output when feasible
 - activation diagnostics now fetch the linked activation result and return:
   - a short normalized failure category
   - a compact summary with the first relevant SAP error
@@ -94,6 +103,10 @@ The following behavior is verified against SAP and reflected in the implementati
   - structured test classes
   - structured test methods
   - failure messages when present
+- the local Docker trial now also has one verified live ABAP Unit reference object:
+  - program `Z_MCP_AUNIT_LV1`
+  - local test class `LTC_REPORT`
+  - local test method `BASIC_ASSERTION`
 - the verified ABAP Unit payload requires:
   - root element `aunit:runConfiguration`
   - `adtcore:objectSets`
@@ -112,6 +125,10 @@ The following behavior is verified against SAP and reflected in the implementati
 - the `ZCL_FLIGHT_CONSUMER` verification case confirmed that this richer activation path now exposes real repository errors, such as:
   - unknown ABAP type names in generated class source
   - partially generated consumer programs that need follow-up content fixes
+- create-time collisions are now normalized more clearly for external clients:
+  - `already_exists`
+  - `lock_or_transport_error`
+  - `create_failed`
 - the later Gemini verification also confirmed that `sap_adt_run_class` is an important secondary verification path when ABAP Unit REST results stay empty in a given SAP environment
 - dependency-helper verification also confirmed one activation edge case:
   - `activationExecuted="false"` without real errors can still be acceptable when the object is not left inactive afterwards
@@ -128,6 +145,9 @@ Historical filenames are preserved, but the document contents are now in English
 - [SAP_ADT_MCP_ABAP_Unit_Verification.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_ABAP_Unit_Verification.md)
 - [SAP_ADT_MCP_Dependency_Activation.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Dependency_Activation.md)
 - [SAP_ADT_MCP_Mass_Activation.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Mass_Activation.md)
+- [SAP_ADT_MCP_Auto_Verify.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Auto_Verify.md)
+- [SAP_ADT_MCP_Examples.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Examples.md)
+- [SAP_ADT_MCP_Demo_Package.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Demo_Package.md)
 - [SAP_ADT_MCP_E2E_Test_20260325.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_E2E_Test_20260325.md)
 - [SAP_ADT_MCP_Gemini_Verification_20260325.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Gemini_Verification_20260325.md)
 - [SAP_ADT_MCP_Transport_Handling.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Transport_Handling.md)
@@ -169,6 +189,8 @@ ABAP Unit verification bundle:
   - `npm run build`
 - run:
   - `npm run verify:abapunit`
+- broader live run:
+  - `node dist/verify-abap-unit-live.js --transportRequest=<WORKBENCH_REQUEST>`
 - reference document:
   - [SAP_ADT_MCP_ABAP_Unit_Verification.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_ABAP_Unit_Verification.md)
 

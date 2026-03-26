@@ -23,6 +23,7 @@
 - `sap_adt_run_program`
 - `sap_adt_run_class`
 - `sap_adt_run_abap_unit`
+- `sap_adt_auto_verify_object`
 
 ### Transport Handling
 

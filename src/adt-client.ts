@@ -544,7 +544,7 @@ export class AdtClient {
       stateful: true,
     });
     if (!(await this.canContinueAfterCreateLock(response, "program", normalizedName))) {
-      this.ensureSuccess(response, `Failed to create program ${normalizedName}`);
+      this.ensureCreateSuccess(response, "program", normalizedName);
     }
     await this.activateObject({
       uri: `/programs/programs/${normalizedName.toLowerCase()}`,
@@ -566,7 +566,7 @@ export class AdtClient {
       stateful: true,
     });
     if (!(await this.canContinueAfterCreateLock(response, "class", normalizedName))) {
-      this.ensureSuccess(response, `Failed to create class ${normalizedName}`);
+      this.ensureCreateSuccess(response, "class", normalizedName);
     }
     await this.activateObject({
       uri: `/oo/classes/${normalizedName.toLowerCase()}`,
@@ -588,7 +588,7 @@ export class AdtClient {
       stateful: true,
     });
     if (!(await this.canContinueAfterCreateLock(response, "ddls", normalizedName))) {
-      this.ensureSuccess(response, `Failed to create DDLS ${normalizedName}`);
+      this.ensureCreateSuccess(response, "ddls", normalizedName);
     }
     return response;
   }
@@ -605,7 +605,7 @@ export class AdtClient {
       stateful: true,
     });
     if (!(await this.canContinueAfterCreateLock(response, "dcls", normalizedName))) {
-      this.ensureSuccess(response, `Failed to create DCLS ${normalizedName}`);
+      this.ensureCreateSuccess(response, "dcls", normalizedName);
     }
     return response;
   }
@@ -622,7 +622,7 @@ export class AdtClient {
       stateful: true,
     });
     if (!(await this.canContinueAfterCreateLock(response, "ddlx", normalizedName))) {
-      this.ensureSuccess(response, `Failed to create DDLX ${normalizedName}`);
+      this.ensureCreateSuccess(response, "ddlx", normalizedName);
     }
     return response;
   }
@@ -637,7 +637,7 @@ export class AdtClient {
       },
       stateful: true,
     });
-    this.ensureSuccess(createResponse, `Failed to create data element ${normalizedName}`);
+    this.ensureCreateSuccess(createResponse, "data element", normalizedName);
 
     const uri = `/sap/bc/adt/ddic/dataelements/${normalizedName.toLowerCase()}`;
     const lockResult = await this.lock(uri);
@@ -678,7 +678,7 @@ export class AdtClient {
       },
       stateful: true,
     });
-    this.ensureSuccess(createResponse, `Failed to create table ${normalizedName}`);
+    this.ensureCreateSuccess(createResponse, "table", normalizedName);
 
     const definitionUri = `/sap/bc/adt/ddic/tables/${normalizedName.toLowerCase()}`;
     const sourceUri = `${definitionUri}/source/main`;
@@ -720,7 +720,7 @@ export class AdtClient {
       },
       stateful: true,
     });
-    this.ensureSuccess(createResponse, `Failed to create table type ${normalizedName}`);
+    this.ensureCreateSuccess(createResponse, "table type", normalizedName);
 
     const uri = `/sap/bc/adt/ddic/tabletypes/${normalizedName.toLowerCase()}`;
     const lockResult = await this.lock(uri);
@@ -761,7 +761,7 @@ export class AdtClient {
       },
       stateful: true,
     });
-    this.ensureSuccess(createResponse, `Failed to create domain ${normalizedName}`);
+    this.ensureCreateSuccess(createResponse, "domain", normalizedName);
 
     const uri = `/sap/bc/adt/ddic/domains/${normalizedName.toLowerCase()}`;
     const lockResult = await this.lock(uri);
@@ -802,7 +802,7 @@ export class AdtClient {
       },
       stateful: true,
     });
-    this.ensureSuccess(createResponse, `Failed to create structure ${normalizedName}`);
+    this.ensureCreateSuccess(createResponse, "structure", normalizedName);
 
     const definitionUri = `/sap/bc/adt/ddic/structures/${normalizedName.toLowerCase()}`;
     const sourceUri = `${definitionUri}/source/main`;
@@ -2197,6 +2197,34 @@ ENDLOOP.`;
     throw new Error(`${message}: ${response.status} ${response.statusText}\n${response.body}`);
   }
 
+  private ensureCreateSuccess(response: AdtResponseSummary, objectKind: string, objectName: string): void {
+    if (response.status >= 200 && response.status < 300) {
+      return;
+    }
+
+    const exceptionInfo = this.parseAdtException(response.body);
+    const category = this.classifyCreateFailure(response, exceptionInfo);
+    const summary =
+      exceptionInfo.message
+      ?? exceptionInfo.localizedMessage
+      ?? `${response.status} ${response.statusText}`;
+
+    const lines = [
+      `Create failed for ${objectKind} ${objectName}.`,
+      `Category: ${category}`,
+      `Summary: ${summary}`,
+    ];
+
+    if (exceptionInfo.typeId) {
+      lines.push(`ADT exception type: ${exceptionInfo.typeId}`);
+    }
+
+    lines.push("Raw response:");
+    lines.push(trimBody(response.body, 4000));
+
+    throw new Error(lines.join("\n"));
+  }
+
   private isSessionTimedOutResponse(response: AdtResponseSummary): boolean {
     if (response.status !== 400) {
       return false;
@@ -2291,6 +2319,55 @@ ENDLOOP.`;
     } catch {
       return false;
     }
+  }
+
+  private parseAdtException(body: string): {
+    typeId?: string;
+    message?: string;
+    localizedMessage?: string;
+  } {
+    const typeId = body.match(/<(?:\w+:)?type\b[^>]*id="([^"]+)"/i)?.[1];
+    const message = body.match(/<(?:\w+:)?message\b[^>]*>([\s\S]*?)<\/(?:\w+:)?message>/i)?.[1];
+    const localizedMessage = body.match(
+      /<(?:\w+:)?localizedMessage\b[^>]*>([\s\S]*?)<\/(?:\w+:)?localizedMessage>/i,
+    )?.[1];
+
+    return {
+      typeId,
+      message,
+      localizedMessage,
+    };
+  }
+
+  private classifyCreateFailure(
+    response: AdtResponseSummary,
+    exceptionInfo: { typeId?: string; message?: string; localizedMessage?: string },
+  ): string {
+    const combined = [
+      exceptionInfo.typeId ?? "",
+      exceptionInfo.message ?? "",
+      exceptionInfo.localizedMessage ?? "",
+      response.body,
+    ].join("\n").toLowerCase();
+
+    if (
+      combined.includes("already exists")
+      || combined.includes("does already exist")
+      || combined.includes("exceptionresourcealreadyexists")
+    ) {
+      return "already_exists";
+    }
+
+    if (
+      combined.includes("locked")
+      || combined.includes("request")
+      || combined.includes("transport")
+      || combined.includes("corrnr")
+    ) {
+      return "lock_or_transport_error";
+    }
+
+    return "create_failed";
   }
 
   private async request(

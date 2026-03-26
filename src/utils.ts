@@ -159,6 +159,19 @@ export interface ParsedAbapUnitResult {
   failureMessages: ParsedAbapUnitFailure[];
 }
 
+export interface ParsedRuntimeOutput {
+  format: "empty" | "plain_text" | "key_value_lines" | "tabular_text";
+  lineCount: number;
+  previewLines: string[];
+  leadingLines?: string[];
+  keyValues?: Record<string, string>;
+  table?: {
+    title?: string;
+    headers: string[];
+    rows: string[][];
+  };
+}
+
 export function parseAbapUnitResult(xml: string): ParsedAbapUnitResult {
   const trimmed = xml.trim();
 
@@ -379,4 +392,117 @@ function countByStatus(methods: ParsedAbapUnitMethod[], status: string): number 
 
 function normalizeInlineXmlText(value: string): string {
   return decodeXml(value.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
+export function parseRuntimeOutput(body: string): ParsedRuntimeOutput {
+  const normalized = normalizeRuntimeBody(body);
+  const lines = normalized
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim() !== "");
+
+  if (lines.length === 0) {
+    return {
+      format: "empty",
+      lineCount: 0,
+      previewLines: [],
+    };
+  }
+
+  const keyValueLines = lines.filter((line) => /^[^:]{1,80}:\s+.+$/.test(line));
+  if (keyValueLines.length > 0 && keyValueLines.length >= lines.length - 1) {
+    const keyValues: Record<string, string> = {};
+    const leadingLines = lines.filter((line) => !/^[^:]{1,80}:\s+.+$/.test(line));
+    for (const line of keyValueLines) {
+      const separatorIndex = line.indexOf(":");
+      const key = line.slice(0, separatorIndex).trim();
+      const value = line.slice(separatorIndex + 1).trim();
+      if (key !== "") {
+        keyValues[key] = value;
+      }
+    }
+    return {
+      format: "key_value_lines",
+      lineCount: lines.length,
+      previewLines: lines.slice(0, 20),
+      leadingLines: leadingLines.length > 0 ? leadingLines : undefined,
+      keyValues,
+    };
+  }
+
+  const table = parsePlainTextTable(lines);
+  if (table) {
+    return {
+      format: "tabular_text",
+      lineCount: lines.length,
+      previewLines: lines.slice(0, 20),
+      table,
+    };
+  }
+
+  return {
+    format: "plain_text",
+    lineCount: lines.length,
+    previewLines: lines.slice(0, 20),
+  };
+}
+
+function normalizeRuntimeBody(body: string): string {
+  const trimmed = body.trim();
+  if (/<[a-zA-Z][\s\S]*>/.test(trimmed) && /<\/[a-zA-Z]/.test(trimmed)) {
+    return decodeXml(trimmed.replace(/<[^>]+>/g, "\n")).replace(/\n{2,}/g, "\n").trim();
+  }
+  return body;
+}
+
+function parsePlainTextTable(lines: string[]): { title?: string; headers: string[]; rows: string[][] } | undefined {
+  if (lines.length < 2) {
+    return undefined;
+  }
+
+  let startIndex = 0;
+  let title: string | undefined;
+
+  if (/:$/.test(lines[0]) && lines.length >= 3) {
+    title = lines[0].slice(0, -1).trim();
+    startIndex = 1;
+  }
+
+  const headerLine = lines[startIndex];
+  const dataLine = lines[startIndex + 1];
+  if (!headerLine || !dataLine) {
+    return undefined;
+  }
+
+  const headers = splitColumns(headerLine);
+  const firstRow = splitColumns(dataLine);
+  if (headers.length < 2 || firstRow.length < 2 || headers.length !== firstRow.length) {
+    return undefined;
+  }
+
+  const rows: string[][] = [];
+  for (const line of lines.slice(startIndex + 1, startIndex + 21)) {
+    const columns = splitColumns(line);
+    if (columns.length === headers.length) {
+      rows.push(columns);
+    }
+  }
+
+  if (rows.length === 0) {
+    return undefined;
+  }
+
+  return {
+    title,
+    headers,
+    rows,
+  };
+}
+
+function splitColumns(line: string): string[] {
+  return line
+    .trim()
+    .split(/\s{2,}/)
+    .map((column) => column.trim())
+    .filter((column) => column !== "");
 }

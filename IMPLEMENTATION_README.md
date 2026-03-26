@@ -52,14 +52,20 @@ Current limitation:
   - empty ADT payloads
   - ADT `aunit:runResult` payloads with `testClass`, `testMethod` and `alert`
   - JUnit-style payloads with `testsuites`, `testsuite`, `testcase`, `failure` and `error`
-- the current container still returned empty `aunit:runResult` XML for the custom demo objects
-- therefore the richer parser is fully implemented, but only partially verified against live non-empty SAP payloads in this environment
-- the next improvement should still be a stable SAP-side reference object that returns a populated result payload end-to-end
+- the broader live verification now found one stable non-empty SAP-side path in this environment:
+  - a program object with local test classes
+- class-based own-test execution still returned empty `aunit:runResult` XML in the same container
+- therefore the richer parser is now verified against:
+  - bundled JUnit-style reference XML
+  - live non-empty program-based ADT payload
+  - live empty class-based ADT payload
 
 Point `4` is now covered by a documented verification bundle:
 
 - script:
   - `src/verify-abap-unit.ts`
+- live matrix script:
+  - `src/verify-abap-unit-live.ts`
 - npm entry:
   - `npm run verify:abapunit`
 - reference parser sample:
@@ -100,6 +106,22 @@ Also verified in `1.3.0`:
   - `stopOnError=false` for full per-object result collection
   - aggregate counts for requested, attempted, successful and failed activations
   - explicit reporting of where execution stopped when stop-on-error is enabled
+- runtime tools now expose a safer client-facing summary layer:
+  - `sap_adt_run_program`
+  - `sap_adt_run_class`
+- one higher-level verification helper now exists:
+  - `sap_adt_auto_verify_object`
+- it chooses a safe follow-up verification path for known runnable artifacts:
+  - `programrun` for programs
+  - `classrun` for classes
+  - optional explicit `abapUnit` mode when the caller wants it
+- verified parser behavior now includes:
+  - plain text table detection from report output
+  - mixed classrun output with one leading text line plus `key: value` rows
+- create tools now normalize collision-style failures more clearly:
+  - `already_exists`
+  - `lock_or_transport_error`
+  - `create_failed`
 
 ## What Was New In 1.1.0
 

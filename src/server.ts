@@ -7,6 +7,7 @@ import { loadConfig } from "./config.js";
 import type { DeletableObjectType, SupportedObjectType } from "./types.js";
 import {
   parseAbapUnitResult,
+  parseRuntimeOutput,
   parseTransportRequestDetail,
   parseTransportRequestList,
   trimBody,
@@ -183,7 +184,7 @@ server.tool(
 
 server.tool(
   "sap_adt_run_program",
-  "Run an executable ABAP program via SAP ADT programrun and return the text output.",
+  "Run an executable ABAP program via SAP ADT programrun and return both the raw output and a compact CLI-friendly summary when feasible.",
   {
     programName: z.string(),
     profilerId: z.string().optional(),
@@ -197,10 +198,15 @@ server.tool(
       profilerId,
     });
 
+    const body = trimBody(response.body);
+    const parsedOutput = parseRuntimeOutput(response.body);
+
     return textResult(JSON.stringify(
       {
-        ...response,
-        body: trimBody(response.body),
+        status: response.status,
+        statusText: response.statusText,
+        parsedOutput,
+        body,
       },
       null,
       2,
@@ -210,7 +216,7 @@ server.tool(
 
 server.tool(
   "sap_adt_run_class",
-  "Run an ABAP class via SAP ADT classrun and return the text output.",
+  "Run an ABAP class via SAP ADT classrun and return both the raw output and a compact CLI-friendly summary when feasible.",
   {
     className: z.string(),
     profilerId: z.string().optional(),
@@ -224,9 +230,93 @@ server.tool(
       profilerId,
     });
 
+    const body = trimBody(response.body);
+    const parsedOutput = parseRuntimeOutput(response.body);
+
     return textResult(JSON.stringify(
       {
-        ...response,
+        status: response.status,
+        statusText: response.statusText,
+        parsedOutput,
+        body,
+      },
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
+  "sap_adt_auto_verify_object",
+  "Run one safe post-activation verification step for a known runnable artifact. In auto mode, programs use programrun and classes use classrun. ABAP Unit can be selected explicitly.",
+  {
+    objectType: z.enum(["class", "program"]),
+    objectName: z.string(),
+    packageName: z.string().optional(),
+    verificationMode: z.enum(["auto", "runtime", "abapUnit"]).optional(),
+    profilerId: z.string().optional(),
+    withNavigationUri: z.boolean().optional(),
+  },
+  async ({ objectType, objectName, packageName, verificationMode, profilerId, withNavigationUri }) => {
+    assertAllowedPackage(config, packageName);
+
+    const mode = verificationMode ?? "auto";
+    if (mode === "abapUnit") {
+      const response = await adtClient.runAbapUnit({
+        objectType,
+        objectName,
+        withNavigationUri,
+      });
+
+      return textResult(JSON.stringify(
+        {
+          verificationMode: "abapUnit",
+          objectType,
+          objectName,
+          status: response.status,
+          statusText: response.statusText,
+          parsedResult: parseAbapUnitResult(response.body),
+          body: trimBody(response.body),
+        },
+        null,
+        2,
+      ));
+    }
+
+    if (objectType === "program") {
+      const response = await adtClient.runProgram({
+        programName: objectName,
+        profilerId,
+      });
+
+      return textResult(JSON.stringify(
+        {
+          verificationMode: "programrun",
+          objectType,
+          objectName,
+          status: response.status,
+          statusText: response.statusText,
+          parsedOutput: parseRuntimeOutput(response.body),
+          body: trimBody(response.body),
+        },
+        null,
+        2,
+      ));
+    }
+
+    const response = await adtClient.runClass({
+      className: objectName,
+      profilerId,
+    });
+
+    return textResult(JSON.stringify(
+      {
+        verificationMode: "classrun",
+        objectType,
+        objectName,
+        status: response.status,
+        statusText: response.statusText,
+        parsedOutput: parseRuntimeOutput(response.body),
         body: trimBody(response.body),
       },
       null,
