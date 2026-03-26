@@ -1,4 +1,5 @@
 export type SupportedObjectType =
+  | "interface"
   | "class"
   | "program"
   | "ddls"
@@ -80,6 +81,27 @@ export interface AdtCreateTransportRequestInput {
   sourceClient?: string;
 }
 
+export interface AdtCreateTransactionInput {
+  transactionCode: string;
+  programName: string;
+  shortText: string;
+  packageName: string;
+  masterSystem: string;
+  transportRequest?: string;
+  variant?: string;
+  helperClassName?: string;
+  deleteHelperAfterRun?: boolean;
+}
+
+export interface AdtDeleteTransactionInput {
+  transactionCode: string;
+  helperPackageName: string;
+  masterSystem?: string;
+  transportRequest?: string;
+  helperClassName?: string;
+  deleteHelperAfterRun?: boolean;
+}
+
 export interface AdtListTransportRequestsInput {
   requestStatus?: "D" | "R";
   requestType?: "K" | "W";
@@ -116,6 +138,14 @@ export interface AdtCreateProgramInput {
 
 export interface AdtCreateClassInput {
   className: string;
+  description: string;
+  packageName: string;
+  masterSystem: string;
+  transportRequest?: string;
+}
+
+export interface AdtCreateInterfaceInput {
+  interfaceName: string;
   description: string;
   packageName: string;
   masterSystem: string;

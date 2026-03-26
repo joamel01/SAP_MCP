@@ -81,7 +81,7 @@ server.tool(
   "sap_adt_read_object",
   "Read an ABAP repository object via SAP ADT. Supply either a direct ADT uri or objectType+objectName.",
   {
-    objectType: z.enum(["class", "program", "ddls", "dcls", "ddlx"]),
+    objectType: z.enum(["interface", "class", "program", "ddls", "dcls", "ddlx"]),
     objectName: z.string().optional(),
     uri: z.string().optional(),
     packageName: z.string().optional(),
@@ -413,7 +413,7 @@ server.tool(
   "sap_adt_write_object",
   "Write ABAP repository content via SAP ADT using a stateful session, lock, corrNr handling and optional activation.",
   {
-    objectType: z.enum(["class", "program", "ddls", "dcls", "ddlx"]),
+    objectType: z.enum(["interface", "class", "program", "ddls", "dcls", "ddlx"]),
     objectName: z.string().optional(),
     uri: z.string().optional(),
     packageName: z.string().optional(),
@@ -449,7 +449,7 @@ server.tool(
   "sap_adt_activate_object",
   "Activate an ABAP repository object via SAP ADT. Supply either objectType+objectName or a direct ADT uri. Source uris are normalized automatically.",
   {
-    objectType: z.enum(["class", "program", "ddls", "dcls", "ddlx"]).optional(),
+    objectType: z.enum(["interface", "class", "program", "ddls", "dcls", "ddlx"]).optional(),
     objectName: z.string().optional(),
     uri: z.string().optional(),
     name: z.string().optional(),
@@ -489,7 +489,7 @@ server.tool(
     orderProfile: z.enum(["auto", "consumerProgram", "consumptionView"]).optional(),
     objects: z.array(
       z.object({
-        objectType: z.enum(["class", "program", "ddls", "dcls", "ddlx"]),
+        objectType: z.enum(["interface", "class", "program", "ddls", "dcls", "ddlx"]),
         objectName: z.string().optional(),
         uri: z.string().optional(),
         packageName: z.string().optional(),
@@ -537,7 +537,7 @@ server.tool(
     stopOnError: z.boolean().optional(),
     objects: z.array(
       z.object({
-        objectType: z.enum(["class", "program", "ddls", "dcls", "ddlx"]),
+        objectType: z.enum(["interface", "class", "program", "ddls", "dcls", "ddlx"]),
         objectName: z.string().optional(),
         uri: z.string().optional(),
         packageName: z.string().optional(),
@@ -605,6 +605,7 @@ server.tool(
   "Delete an ABAP repository or DDIC object via SAP ADT using lockHandle and corrNr when required.",
   {
     objectType: z.enum([
+      "interface",
       "class",
       "program",
       "ddls",
@@ -1098,6 +1099,103 @@ server.tool(
 );
 
 server.tool(
+  "sap_adt_create_transaction",
+  "Create a classic report transaction code through a verified helper-class flow. Current verified scope is report transactions only.",
+  {
+    transactionCode: z.string(),
+    programName: z.string(),
+    shortText: z.string(),
+    packageName: z.string(),
+    masterSystem: z.string().optional(),
+    transportRequest: z.string().optional(),
+    variant: z.string().optional(),
+    helperClassName: z.string().optional(),
+    deleteHelperAfterRun: z.boolean().optional(),
+  },
+  async ({
+    transactionCode,
+    programName,
+    shortText,
+    packageName,
+    masterSystem,
+    transportRequest,
+    variant,
+    helperClassName,
+    deleteHelperAfterRun,
+  }) => {
+    assertAllowedPackage(config, packageName);
+
+    const responses = await adtClient.createTransaction({
+      transactionCode,
+      programName,
+      shortText,
+      packageName,
+      masterSystem: masterSystem ?? config.defaultMasterSystem,
+      transportRequest,
+      variant,
+      helperClassName,
+      deleteHelperAfterRun,
+    });
+
+    return textResult(JSON.stringify(
+      responses.map((response, index) => ({
+        step: index + 1,
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+        body: trimBody(response.body),
+      })),
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
+  "sap_adt_delete_transaction",
+  "Delete a classic transaction code through a verified helper-class flow.",
+  {
+    transactionCode: z.string(),
+    helperPackageName: z.string(),
+    masterSystem: z.string().optional(),
+    transportRequest: z.string().optional(),
+    helperClassName: z.string().optional(),
+    deleteHelperAfterRun: z.boolean().optional(),
+  },
+  async ({
+    transactionCode,
+    helperPackageName,
+    masterSystem,
+    transportRequest,
+    helperClassName,
+    deleteHelperAfterRun,
+  }) => {
+    assertAllowedPackage(config, helperPackageName);
+
+    const responses = await adtClient.deleteTransaction({
+      transactionCode,
+      helperPackageName,
+      masterSystem: masterSystem ?? config.defaultMasterSystem,
+      transportRequest,
+      helperClassName,
+      deleteHelperAfterRun,
+    });
+
+    return textResult(JSON.stringify(
+      responses.map((response, index) => ({
+        step: index + 1,
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+        body: trimBody(response.body),
+      })),
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
   "sap_adt_create_program",
   "Create an executable ABAP report program via SAP ADT.",
   {
@@ -1117,6 +1215,38 @@ server.tool(
       packageName,
       masterSystem: masterSystem ?? config.defaultMasterSystem,
       abapLanguageVersion: abapLanguageVersion ?? config.defaultAbapLanguageVersion,
+      transportRequest,
+    });
+
+    return textResult(JSON.stringify(
+      {
+        ...response,
+        body: trimBody(response.body),
+      },
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
+  "sap_adt_create_interface",
+  "Create an ABAP interface shell via SAP ADT.",
+  {
+    interfaceName: z.string(),
+    description: z.string(),
+    packageName: z.string(),
+    masterSystem: z.string().optional(),
+    transportRequest: z.string().optional(),
+  },
+  async ({ interfaceName, description, packageName, masterSystem, transportRequest }) => {
+    assertAllowedPackage(config, packageName);
+
+    const response = await adtClient.createInterface({
+      interfaceName,
+      description,
+      packageName,
+      masterSystem: masterSystem ?? config.defaultMasterSystem,
       transportRequest,
     });
 

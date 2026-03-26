@@ -23,7 +23,7 @@ The MCP now covers the main repository-centric SAP ADT workflows needed by an AI
 - transport request creation, listing, inspection, checks, release and deletion
 - package creation
 - scaffold creation from templates
-- creation of program, class, DDLS, DCLS and DDLX
+- creation of interface, report transaction, program, class, DDLS, DCLS and DDLX
 - creation of DDIC objects:
   - data elements
   - domains
@@ -69,7 +69,18 @@ This version incorporates the most important lessons from the latest verificatio
 The following behavior is verified against SAP and reflected in the implementation:
 
 - activation requires full ADT object URIs and correct `adtcore:type`
+- interface support is now verified through the native ADT interface endpoint:
+  - create on `/oo/interfaces`
+  - source read/write on `/oo/interfaces/{name}/source/main`
+  - activation as `INTF/OI`
+- report transaction support is now verified through a helper-class flow around classic SAP function modules:
+  - create via `RPY_TRANSACTION_INSERT`
+  - delete via `RPY_TRANSACTION_DELETE`
+  - current verified scope: report transactions
+  - delete requires an explicit helper package for the temporary helper class
+  - package registration can be verified through `TADIR` with `PGMID = 'R3TR'` and `OBJECT = 'TRAN'`
 - `sap_adt_activate_object` now normalizes common caller inputs internally:
+  - `interface`
   - `objectType + objectName`
   - direct definition URI
   - `.../source/main` URI
@@ -161,6 +172,7 @@ You normally only need to adjust:
 - `SAP_ADT_PASSWORD`
 - `SAP_ADT_VERIFY_TLS`
 - `SAP_ADT_ALLOWED_PACKAGES`
+- `SAP_ADT_ALLOWED_OBJECT_TYPES`
 - `SAP_ADT_DEFAULT_TRANSPORT_REQUEST` if you intentionally want a fallback request
 - `config/object-uri-templates.json` if your ADT object paths differ
 

@@ -9,11 +9,14 @@ import type {
   AdtCreateDdlsInput,
   AdtCreateDdlxInput,
   AdtCreateDomainInput,
+  AdtCreateInterfaceInput,
   AdtCreatePackageInput,
   AdtCreateProgramInput,
   AdtCreateSearchHelpInput,
   AdtCreateScaffoldInput,
+  AdtCreateTransactionInput,
   AdtCreateTransportRequestInput,
+  AdtDeleteTransactionInput,
   AdtDeleteTransportRequestInput,
   AdtGetTransportRequestInput,
   AdtListTransportRequestsInput,
@@ -169,6 +172,104 @@ export class AdtClient {
       responses.push(await this.deleteObject({
         objectType: "program",
         objectName: helperProgramName,
+      }));
+    }
+
+    return responses;
+  }
+
+  async createTransaction(input: AdtCreateTransactionInput): Promise<AdtResponseSummary[]> {
+    const helperClassName = truncateObjectName(
+      input.helperClassName ?? `ZCL_MCP_TX_${input.transactionCode}`,
+      30,
+    );
+    const responses: AdtResponseSummary[] = [];
+
+    try {
+      responses.push(await this.createClass({
+        className: helperClassName,
+        description: `MCP helper for ${normalizeObjectName(input.transactionCode)}`,
+        packageName: input.packageName,
+        masterSystem: input.masterSystem,
+        transportRequest: input.transportRequest,
+      }));
+    } catch (error) {
+      const message = String(error);
+      if (!message.includes("already_exists")) {
+        throw error;
+      }
+    }
+
+    responses.push(await this.writeObject({
+      objectType: "class",
+      objectName: helperClassName,
+      content: this.buildCreateTransactionHelperClassSource(input, helperClassName),
+      transportRequest: input.transportRequest,
+      activateAfterWrite: true,
+    }));
+
+    const runResponse = await this.runClass({ className: helperClassName });
+    this.ensureSuccess(
+      runResponse,
+      `Failed to run helper class ${helperClassName} for transaction ${normalizeObjectName(input.transactionCode)}`,
+    );
+    this.ensureTransactionHelperCreateSuccess(input.transactionCode, runResponse.body);
+    responses.push(runResponse);
+
+    if (input.deleteHelperAfterRun ?? true) {
+      responses.push(await this.deleteObject({
+        objectType: "class",
+        objectName: helperClassName,
+        transportRequest: input.transportRequest,
+      }));
+    }
+
+    return responses;
+  }
+
+  async deleteTransaction(input: AdtDeleteTransactionInput): Promise<AdtResponseSummary[]> {
+    const helperClassName = truncateObjectName(
+      input.helperClassName ?? `ZCL_MCP_TX_${input.transactionCode}`,
+      30,
+    );
+    const responses: AdtResponseSummary[] = [];
+
+    try {
+      responses.push(await this.createClass({
+        className: helperClassName,
+        description: `MCP helper for ${normalizeObjectName(input.transactionCode)}`,
+        packageName: input.helperPackageName,
+        masterSystem: input.masterSystem ?? this.config.defaultMasterSystem,
+        transportRequest: input.transportRequest,
+      }));
+    } catch (error) {
+      const message = String(error);
+      if (!message.includes("already_exists")) {
+        throw error;
+      }
+    }
+
+    responses.push(await this.writeObject({
+      objectType: "class",
+      objectName: helperClassName,
+      content: this.buildDeleteTransactionHelperClassSource(input, helperClassName),
+      transportRequest: input.transportRequest,
+      activateAfterWrite: true,
+    }));
+
+    const runResponse = await this.runClass({ className: helperClassName });
+    this.ensureSuccess(
+      runResponse,
+      `Failed to run helper class ${helperClassName} for transaction delete ${normalizeObjectName(input.transactionCode)}`,
+    );
+    this.ensureTransactionHelperDeleteSuccess(input.transactionCode, runResponse.body);
+    responses.push(runResponse);
+
+    if (input.deleteHelperAfterRun ?? true) {
+      responses.push(await this.deleteObject({
+        objectType: "class",
+        objectName: helperClassName,
+        transportRequest: input.transportRequest,
       }));
     }
 
@@ -572,6 +673,28 @@ export class AdtClient {
       uri: `/oo/classes/${normalizedName.toLowerCase()}`,
       name: normalizedName,
       type: "CLAS/OC",
+    });
+    return response;
+  }
+
+  async createInterface(input: AdtCreateInterfaceInput): Promise<AdtResponseSummary> {
+    const normalizedName = normalizeObjectName(input.interfaceName);
+    const transportRequest = await this.resolveEffectiveTransportRequest(input.transportRequest);
+    const interfaceXml = this.buildInterfaceXml(input);
+    const response = await this.request("POST", `/oo/interfaces?${this.buildCorrNrQuery(transportRequest)}`, {
+      body: interfaceXml,
+      headers: {
+        "Content-Type": "application/*",
+      },
+      stateful: true,
+    });
+    if (!(await this.canContinueAfterCreateLock(response, "interface", normalizedName))) {
+      this.ensureCreateSuccess(response, "interface", normalizedName);
+    }
+    await this.activateObject({
+      uri: `/oo/interfaces/${normalizedName.toLowerCase()}`,
+      name: normalizedName,
+      type: "INTF/OI",
     });
     return response;
   }
@@ -1164,6 +1287,7 @@ export class AdtClient {
   ): OrderedDependencyObject[] {
     const rankByProfile: Record<"auto" | "consumerProgram" | "consumptionView", Record<SupportedObjectType, number>> = {
       auto: {
+        interface: 5,
         ddls: 10,
         dcls: 20,
         ddlx: 30,
@@ -1171,13 +1295,15 @@ export class AdtClient {
         program: 50,
       },
       consumerProgram: {
-        ddls: 10,
-        class: 20,
-        program: 30,
-        dcls: 40,
-        ddlx: 50,
+        interface: 10,
+        ddls: 20,
+        class: 30,
+        program: 40,
+        dcls: 50,
+        ddlx: 60,
       },
       consumptionView: {
+        interface: 5,
         ddls: 10,
         dcls: 20,
         ddlx: 30,
@@ -1484,6 +1610,8 @@ export class AdtClient {
 
     const normalized = normalizeObjectName(objectName).toLowerCase();
     switch (objectType) {
+      case "interface":
+        return `/oo/interfaces/${normalized}`;
       case "class":
         return `/oo/classes/${normalized}`;
       case "program":
@@ -1501,6 +1629,8 @@ export class AdtClient {
 
   private toActivationObjectType(objectType: SupportedObjectType): string | undefined {
     switch (objectType) {
+      case "interface":
+        return "INTF/OI";
       case "class":
         return "CLAS/OC";
       case "program":
@@ -1519,6 +1649,9 @@ export class AdtClient {
   private inferActivationObjectType(uri: string): string | undefined {
     const normalizedUri = uri.toLowerCase();
 
+    if (normalizedUri.includes("/oo/interfaces/")) {
+      return "INTF/OI";
+    }
     if (normalizedUri.includes("/oo/classes/")) {
       return "CLAS/OC";
     }
@@ -1605,6 +1738,7 @@ export class AdtClient {
 
   private resolveDeleteLockUri(objectType: DeletableObjectType, deleteUri: string): string {
     switch (objectType) {
+      case "interface":
       case "class":
       case "program":
       case "ddls":
@@ -1732,6 +1866,18 @@ export class AdtClient {
       `adtcore:masterLanguage="EN" adtcore:masterSystem="${input.masterSystem}" adtcore:responsible="${this.config.username.toUpperCase()}">` +
       `<adtcore:packageRef adtcore:name="${normalizedPackage}"/>` +
       `</class:abapClass>`;
+  }
+
+  private buildInterfaceXml(input: AdtCreateInterfaceInput): string {
+    const normalizedName = normalizeObjectName(input.interfaceName);
+    const normalizedPackage = normalizeObjectName(input.packageName);
+
+    return `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<intf:abapInterface xmlns:intf="http://www.sap.com/adt/oo/interfaces" xmlns:adtcore="http://www.sap.com/adt/core" ` +
+      `adtcore:description="${xmlEscape(input.description)}" adtcore:name="${normalizedName}" adtcore:type="INTF/OI" adtcore:language="EN" ` +
+      `adtcore:masterLanguage="EN" adtcore:masterSystem="${input.masterSystem}" adtcore:responsible="${this.config.username.toUpperCase()}">` +
+      `<adtcore:packageRef adtcore:name="${normalizedPackage}"/>` +
+      `</intf:abapInterface>`;
   }
 
   private buildDdlsXml(input: AdtCreateDdlsInput): string {
@@ -1989,6 +2135,215 @@ START-OF-SELECTION.
     iv_carrid = p_carrid ).
 
   WRITE: / 'Flights:', lv_count.`;
+  }
+
+  private toAbapStringLiteral(value: string | undefined): string {
+    return `'${(value ?? "").replaceAll("'", "''")}'`;
+  }
+
+  private buildCreateTransactionHelperClassSource(
+    input: AdtCreateTransactionInput,
+    helperClassName: string,
+  ): string {
+    const transactionCode = normalizeObjectName(input.transactionCode);
+    const programName = normalizeObjectName(input.programName);
+    const packageName = normalizeObjectName(input.packageName);
+    const variantConstant = input.variant
+      ? `,\n      lc_variant     TYPE c LENGTH 14 VALUE ${this.toAbapStringLiteral(input.variant)}`
+      : "";
+    const variantParameter = input.variant
+      ? "\n            variant                    = lc_variant"
+      : "";
+
+    return `CLASS ${helperClassName} DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PUBLIC.
+
+  PUBLIC SECTION.
+    INTERFACES if_oo_adt_classrun.
+ENDCLASS.
+
+CLASS ${helperClassName} IMPLEMENTATION.
+  METHOD if_oo_adt_classrun~main.
+    CONSTANTS:
+      lc_transaction TYPE tcode VALUE ${this.toAbapStringLiteral(transactionCode)},
+      lc_program     TYPE syrepid VALUE ${this.toAbapStringLiteral(programName)},
+      lc_shorttext   TYPE tstct-ttext VALUE ${this.toAbapStringLiteral(input.shortText)},
+      lc_devclass    TYPE tadir-devclass VALUE ${this.toAbapStringLiteral(packageName)},
+      lc_trkorr      TYPE trkorr VALUE ${this.toAbapStringLiteral(input.transportRequest)}${variantConstant}.
+
+    DATA:
+      lv_subrc       TYPE sysubrc,
+      lv_result      TYPE string,
+      lv_exists_flag TYPE c LENGTH 1,
+      lv_exception   TYPE string.
+
+    TRY.
+        CALL FUNCTION 'RPY_TRANSACTION_INSERT'
+          EXPORTING
+            program                    = lc_program
+${variantParameter}
+            transaction                = lc_transaction
+            shorttext                  = lc_shorttext
+            language                   = sy-langu
+            development_class          = lc_devclass
+            transport_number           = lc_trkorr
+            transaction_type           = 'R'
+            suppress_corr_check        = 'X'
+            suppress_corr_insert       = 'X'
+          EXCEPTIONS
+            cancelled                  = 1
+            already_exist              = 2
+            permission_error           = 3
+            name_not_allowed           = 4
+            name_conflict              = 5
+            illegal_type               = 6
+            object_inconsistent        = 7
+            db_access_error            = 8
+            OTHERS                     = 9.
+
+        lv_subrc = sy-subrc.
+        lv_result = SWITCH string( lv_subrc
+          WHEN 0 THEN 'OK'
+          WHEN 1 THEN 'CANCELLED'
+          WHEN 2 THEN 'ALREADY_EXIST'
+          WHEN 3 THEN 'PERMISSION_ERROR'
+          WHEN 4 THEN 'NAME_NOT_ALLOWED'
+          WHEN 5 THEN 'NAME_CONFLICT'
+          WHEN 6 THEN 'ILLEGAL_TYPE'
+          WHEN 7 THEN 'OBJECT_INCONSISTENT'
+          WHEN 8 THEN 'DB_ACCESS_ERROR'
+          ELSE |SUBRC_{ lv_subrc }| ).
+
+        SELECT SINGLE @abap_true
+          FROM tstc
+          WHERE tcode = @lc_transaction
+          INTO @DATA(lv_exists).
+
+        lv_exists_flag = COND #( WHEN sy-subrc = 0 THEN '1' ELSE '0' ).
+        out->write( |MODE=CREATE; TCODE={ lc_transaction }; RESULT={ lv_result }; SUBRC={ lv_subrc }; EXISTS={ lv_exists_flag }| ).
+      CATCH cx_root INTO DATA(lx_root).
+        lv_exception = lx_root->get_text( ).
+        out->write( |MODE=CREATE; TCODE={ lc_transaction }; RESULT=EXCEPTION; TEXT={ lv_exception }| ).
+    ENDTRY.
+  ENDMETHOD.
+ENDCLASS.`;
+  }
+
+  private buildDeleteTransactionHelperClassSource(
+    input: AdtDeleteTransactionInput,
+    helperClassName: string,
+  ): string {
+    const transactionCode = normalizeObjectName(input.transactionCode);
+
+    return `CLASS ${helperClassName} DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PUBLIC.
+
+  PUBLIC SECTION.
+    INTERFACES if_oo_adt_classrun.
+ENDCLASS.
+
+CLASS ${helperClassName} IMPLEMENTATION.
+  METHOD if_oo_adt_classrun~main.
+    CONSTANTS:
+      lc_transaction TYPE tcode VALUE ${this.toAbapStringLiteral(transactionCode)},
+      lc_trkorr      TYPE trkorr VALUE ${this.toAbapStringLiteral(input.transportRequest)}.
+
+    DATA:
+      lv_subrc       TYPE sysubrc,
+      lv_result      TYPE string,
+      lv_exists_flag TYPE c LENGTH 1,
+      lv_exception   TYPE string.
+
+    TRY.
+        CALL FUNCTION 'RPY_TRANSACTION_DELETE'
+          EXPORTING
+            transaction                = lc_transaction
+            transport_number           = lc_trkorr
+            suppress_authority_check   = 'X'
+            suppress_corr_insert       = 'X'
+            suppress_corr_check        = 'X'
+          EXCEPTIONS
+            not_excecuted              = 1
+            object_not_found           = 2
+            OTHERS                     = 3.
+
+        lv_subrc = sy-subrc.
+        lv_result = SWITCH string( lv_subrc
+          WHEN 0 THEN 'OK'
+          WHEN 1 THEN 'NOT_EXCECUTED'
+          WHEN 2 THEN 'OBJECT_NOT_FOUND'
+          ELSE |SUBRC_{ lv_subrc }| ).
+
+        SELECT SINGLE @abap_true
+          FROM tstc
+          WHERE tcode = @lc_transaction
+          INTO @DATA(lv_exists).
+
+        lv_exists_flag = COND #( WHEN sy-subrc = 0 THEN '1' ELSE '0' ).
+        out->write( |MODE=DELETE; TCODE={ lc_transaction }; RESULT={ lv_result }; SUBRC={ lv_subrc }; EXISTS={ lv_exists_flag }| ).
+      CATCH cx_root INTO DATA(lx_root).
+        lv_exception = lx_root->get_text( ).
+        out->write( |MODE=DELETE; TCODE={ lc_transaction }; RESULT=EXCEPTION; TEXT={ lv_exception }| ).
+    ENDTRY.
+  ENDMETHOD.
+ENDCLASS.`;
+  }
+
+  private ensureTransactionHelperCreateSuccess(
+    transactionCode: string,
+    responseBody: string,
+  ): void {
+    const normalizedCode = normalizeObjectName(transactionCode);
+    const trimmedBody = trimBody(responseBody, 4000);
+    const exceptionText = responseBody.match(/RESULT=EXCEPTION;\s*TEXT=(.+)$/im)?.[1]?.trim();
+    if (exceptionText) {
+      throw new Error(
+        `Create transaction helper failed for ${normalizedCode}.\nSummary: ${exceptionText}\nRaw response:\n${trimmedBody}`,
+      );
+    }
+
+    const result = responseBody.match(/RESULT=([A-Z_0-9]+)/i)?.[1]?.toUpperCase();
+    const subrc = responseBody.match(/SUBRC=(\d+)/i)?.[1];
+    const exists = responseBody.match(/EXISTS=([01])/i)?.[1];
+
+    if (result === "OK" && subrc === "0" && exists === "1") {
+      return;
+    }
+
+    const category = result === "ALREADY_EXIST" ? "already_exists" : "create_failed";
+    throw new Error(
+      `Create transaction helper failed for ${normalizedCode}.\nCategory: ${category}\nSummary: RESULT=${result ?? "UNKNOWN"} SUBRC=${subrc ?? "?"} EXISTS=${exists ?? "?"}\nRaw response:\n${trimmedBody}`,
+    );
+  }
+
+  private ensureTransactionHelperDeleteSuccess(
+    transactionCode: string,
+    responseBody: string,
+  ): void {
+    const normalizedCode = normalizeObjectName(transactionCode);
+    const trimmedBody = trimBody(responseBody, 4000);
+    const exceptionText = responseBody.match(/RESULT=EXCEPTION;\s*TEXT=(.+)$/im)?.[1]?.trim();
+    if (exceptionText) {
+      throw new Error(
+        `Delete transaction helper failed for ${normalizedCode}.\nSummary: ${exceptionText}\nRaw response:\n${trimmedBody}`,
+      );
+    }
+
+    const result = responseBody.match(/RESULT=([A-Z_0-9]+)/i)?.[1]?.toUpperCase();
+    const subrc = responseBody.match(/SUBRC=(\d+)/i)?.[1];
+    const exists = responseBody.match(/EXISTS=([01])/i)?.[1];
+
+    if (result === "OK" && subrc === "0" && exists === "0") {
+      return;
+    }
+
+    throw new Error(
+      `Delete transaction helper failed for ${normalizedCode}.\nCategory: delete_failed\nSummary: RESULT=${result ?? "UNKNOWN"} SUBRC=${subrc ?? "?"} EXISTS=${exists ?? "?"}\nRaw response:\n${trimmedBody}`,
+    );
   }
 
   private buildSearchHelpHelperProgramSource(

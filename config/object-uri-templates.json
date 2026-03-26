@@ -1,4 +1,8 @@
 {
+  "interface": {
+    "label": "ABAP interface source",
+    "uriTemplate": "/oo/interfaces/{objectName}/source/main"
+  },
   "class": {
     "label": "ABAP class source",
     "uriTemplate": "/oo/classes/{objectName}/source/main"

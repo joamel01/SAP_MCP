@@ -238,6 +238,9 @@ The same iteration also verified that some DDIC objects behave as text-source ob
 - `sap_adt_create_transport_request`
 - `sap_adt_create_package`
 - `sap_adt_create_abap_scaffold`
+- `sap_adt_create_interface`
+- `sap_adt_create_transaction`
+- `sap_adt_delete_transaction`
 - `sap_adt_create_program`
 - `sap_adt_create_class`
 - `sap_adt_create_ddls`
@@ -248,6 +251,15 @@ The same iteration also verified that some DDIC objects behave as text-source ob
 - `sap_adt_create_table`
 - `sap_adt_create_structure`
 - `sap_adt_create_tabletype`
+
+Transaction scope in the current baseline:
+
+- verified creation and deletion of classic report transactions
+- implemented through a temporary helper class that calls:
+  - `RPY_TRANSACTION_INSERT`
+  - `RPY_TRANSACTION_DELETE`
+- helper deletion is supported after the run
+- transaction delete requires an explicit helper package input for the temporary helper class
 
 ## Environment Variables
 

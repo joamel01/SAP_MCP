@@ -7,7 +7,7 @@ The findings in this document were gathered primarily from verification runs aga
 - ADT discovery is reachable and usable through HTTP in the target SAP container
 - the local container ADT base was verified as:
   - `http://127.0.0.1:50000/sap/bc/adt`
-- classes, programs and DDLS objects can be read through verified ADT URIs
+- interfaces, classes, programs and DDLS objects can be read through verified ADT URIs
 
 ## 2. Source Write And Activation
 
@@ -24,9 +24,15 @@ The findings in this document were gathered primarily from verification runs aga
   - `451 REASON_451`
   - `connection closed (no data)`
 - activation input handling is now verified in a more user-friendly form:
+  - interface activation works with `objectType + objectName`
   - program activation works with `objectType + objectName`
   - DDLS activation works with `objectType + objectName`
   - source URIs ending in `.../source/main` are normalized automatically before activation
+- interface object handling is now verified end-to-end through native ADT endpoints:
+  - create: `/oo/interfaces`
+  - source read/write: `/oo/interfaces/{name}/source/main`
+  - activation type: `INTF/OI`
+  - delete via source lock URI
 - activation diagnostics are now verified at a more useful external-client level:
   - the MCP follows the activation result link returned by the background run
   - it parses `chkl:properties`
@@ -101,6 +107,44 @@ Additional verified DDIC findings:
   - class `ZCL_MCP_CLASSRUN_DEMO` via `classrun`
 - verified explicit ABAP Unit path used by the helper:
   - program `Z_MCP_AUNIT_LV1`
+
+## 5A. Classic Report Transactions
+
+Verified:
+
+- there is no dedicated first-class ADT create endpoint for the needed classic transaction scenario in this environment
+- a reliable helper-class flow works instead
+- verified function modules:
+  - `RPY_TRANSACTION_INSERT`
+  - `RPY_TRANSACTION_DELETE`
+- current verified scope:
+  - classic report transactions
+- verified SAP create case:
+  - temporary transaction code created against report `Z_MCP_FILL_SIMPLE_TAB`
+  - helper class returned:
+    - `MODE=CREATE`
+    - `RESULT=OK`
+    - `SUBRC=0`
+    - `EXISTS=1`
+- package registration is verifiable through `TADIR`
+  - verified reference object:
+    - `Z_TEST`
+  - verified `TADIR` pattern:
+    - `PGMID = 'R3TR'`
+    - `OBJECT = 'TRAN'`
+    - `OBJ_NAME = <transaction code>`
+    - `DEVCLASS = <package>`
+- verified SAP delete case:
+  - same temporary transaction code removed successfully
+  - helper class returned:
+    - `MODE=DELETE`
+    - `RESULT=OK`
+    - `SUBRC=0`
+    - `EXISTS=0`
+- practical implementation finding:
+  - `SHORTTEXT` in `RPY_TRANSACTION_INSERT` must use the DDIC type `TSTCT-TTEXT`
+  - `VARIANT` must be omitted entirely when no variant is intended
+  - `RPY_TRANSACTION_DELETE` must run with suppress flags in this headless ADT flow to avoid GUI-style dynpro errors
 
 ## 6. Transport Handling
 

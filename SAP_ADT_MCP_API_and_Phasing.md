@@ -38,6 +38,9 @@
 ### Repository Creation
 
 - `sap_adt_create_package`
+- `sap_adt_create_interface`
+- `sap_adt_create_transaction`
+- `sap_adt_delete_transaction`
 - `sap_adt_create_program`
 - `sap_adt_create_class`
 - `sap_adt_create_ddls`
@@ -121,6 +124,7 @@ This is deliberate. It is easier for MCP clients to reason over compact JSON tex
 - backend provisioning scenario for a working SAPUI5 app
 - dependency-aware activation helper
 - small-set mass activation with stop-or-continue behavior
+- verified report-transaction create/delete helper flow
 
 ## Recommended Next Phase
 
@@ -131,6 +135,13 @@ The next valuable phase would be:
 3. broader live verification of non-empty ABAP Unit result payloads
 
 ## Out Of Scope For Now
+
+Even with transaction support, the MCP still does not aim to cover the full classic SAP GUI transaction-maintenance surface. The current verified scope is narrow and deliberate:
+
+- classic report transaction creation
+- classic report transaction deletion
+- no generic dynpro transaction modeling
+- no parameter transaction modeling yet
 
 - BSP upload
 - app index calculation

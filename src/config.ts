@@ -5,7 +5,7 @@ import type { ObjectUriTemplateMap, ServerConfig, SupportedObjectType } from "./
 
 dotenv.config();
 
-const SUPPORTED_TYPES: SupportedObjectType[] = ["class", "program", "ddls", "dcls", "ddlx"];
+const SUPPORTED_TYPES: SupportedObjectType[] = ["interface", "class", "program", "ddls", "dcls", "ddlx"];
 
 function readRequiredEnv(name: string): string {
   const value = process.env[name];

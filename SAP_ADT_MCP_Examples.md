@@ -25,6 +25,46 @@ Example:
 
 Use `stopOnError=true` when you want the call to halt on the first failed activation.
 
+## `sap_adt_create_transaction`
+
+Use for the currently verified classic transaction scenario: a report transaction for an existing executable program.
+
+Example:
+
+```json
+{
+  "transactionCode": "ZMCP_REPORT_DEMO",
+  "programName": "Z_MCP_FILL_SIMPLE_TAB",
+  "shortText": "MCP report demo",
+  "packageName": "Z_DEV_KODEXPORT",
+  "transportRequest": "A4HK900315"
+}
+```
+
+Current scope:
+
+- report transaction only
+- helper class is created and removed automatically by default
+
+## `sap_adt_delete_transaction`
+
+Use to remove a previously created classic transaction code.
+
+Example:
+
+```json
+{
+  "transactionCode": "ZMCP_REPORT_DEMO",
+  "helperPackageName": "Z_DEV_KODEXPORT",
+  "transportRequest": "A4HK900315"
+}
+```
+
+Note:
+
+- delete uses a temporary helper class
+- the helper package is explicit so the client controls where the temporary class is created
+
 ## `sap_adt_run_class`
 
 Use for classes that implement the ADT classrun contract and should produce a small runtime check.
