@@ -1,4 +1,12 @@
 {
+  "functiongroup": {
+    "label": "ABAP function group source",
+    "uriTemplate": "/functions/groups/{objectName}/source/main"
+  },
+  "functionmodule": {
+    "label": "ABAP function module source",
+    "uriTemplate": "/functions/groups/{containerName}/fmodules/{objectName}/source/main"
+  },
   "interface": {
     "label": "ABAP interface source",
     "uriTemplate": "/oo/interfaces/{objectName}/source/main"
@@ -14,6 +22,10 @@
   "ddls": {
     "label": "CDS DDLS source",
     "uriTemplate": "/ddic/ddl/sources/{objectName}/source/main"
+  },
+  "bdef": {
+    "label": "RAP behavior definition source",
+    "uriTemplate": "/bo/behaviordefinitions/{objectName}/source/main"
   },
   "dcls": {
     "label": "CDS DCL source",

@@ -7,7 +7,7 @@ The findings in this document were gathered primarily from verification runs aga
 - ADT discovery is reachable and usable through HTTP in the target SAP container
 - the local container ADT base was verified as:
   - `http://127.0.0.1:50000/sap/bc/adt`
-- interfaces, classes, programs and DDLS objects can be read through verified ADT URIs
+- function groups, function modules, interfaces, classes, programs and DDLS objects can be read through verified ADT URIs
 
 ## 2. Source Write And Activation
 
@@ -32,6 +32,35 @@ The findings in this document were gathered primarily from verification runs aga
   - create: `/oo/interfaces`
   - source read/write: `/oo/interfaces/{name}/source/main`
   - activation type: `INTF/OI`
+  - delete via source lock URI
+- RAP behavior-definition handling is now partially verified through native ADT endpoints:
+  - create: `/bo/behaviordefinitions`
+  - metadata read: `/bo/behaviordefinitions/{name}`
+  - source read/write: `/bo/behaviordefinitions/{name}/source/main`
+  - activation type mapping: `BDEF/BDO`
+  - delete via source lock URI
+- verified implementation details for BDEF:
+  - create content type:
+    - `application/vnd.sap.adt.blues.v1+xml`
+  - create root namespace:
+    - `http://www.sap.com/wbobj/blue`
+  - source write requires the same stateful lock/session handling as other `source/main` objects
+- current environment limitation for BDEF:
+  - generic ADT activation returned a no-op result with:
+    - `checkExecuted="false"`
+    - `activationExecuted="false"`
+    - `generationExecuted="false"`
+  - this happened both for standard active BDEF objects and for temporary MCP-created objects in the Docker trial
+  - BDEF support is therefore currently verified for create/read/write/delete, but not for robust generic activation
+- function-group object handling is now verified end-to-end through native ADT endpoints:
+  - create: `/functions/groups`
+  - source read/write: `/functions/groups/{group}/source/main`
+  - activation type: `FUGR/F`
+  - delete via source lock URI
+- function-module object handling is now verified end-to-end through native ADT endpoints:
+  - create: `/functions/groups/{group}/fmodules`
+  - source read/write: `/functions/groups/{group}/fmodules/{fmodule}/source/main`
+  - activation type: `FUGR/FF`
   - delete via source lock URI
 - activation diagnostics are now verified at a more useful external-client level:
   - the MCP follows the activation result link returned by the background run
@@ -146,6 +175,44 @@ Verified:
   - `VARIANT` must be omitted entirely when no variant is intended
   - `RPY_TRANSACTION_DELETE` must run with suppress flags in this headless ADT flow to avoid GUI-style dynpro errors
 
+## 5B. Persistent User Parameters
+
+Verified:
+
+- there is no dedicated first-class ADT endpoint for the needed user-parameter scenario in this environment
+- a reliable helper-class flow works instead
+- verified function modules:
+  - `SUSR_USER_PARAMETERS_GET`
+  - `SUSR_USER_PARAMETERS_PUT`
+- verified parameter table structure:
+  - `USTYP_T_PARAMETERS`
+  - fields:
+    - `PARID`
+    - `PARVA`
+    - `PARTEXT`
+- current verified scope:
+  - persistent user parameters
+  - same-user verification for the MCP runtime user
+- explicit non-scope:
+  - transient `SET PARAMETER ID` / `GET PARAMETER ID` session memory behavior
+
+Verified SAP round-trip:
+
+- read current filtered parameter set for user `CODEX`
+- set `/AIF/SKIP = MCP`
+- read back the changed value successfully
+- restore the original state successfully
+
+Practical implementation findings:
+
+- helper diagnostics must capture `sy-subrc` immediately after each FM call
+  - later ABAP statements can overwrite it and create false MCP-level failures
+- the safe update model is:
+  1. read the full parameter list
+  2. merge requested entries
+  3. write the full list back
+- this avoids accidental loss of unrelated user parameters when only one parameter is updated
+
 ## 6. Transport Handling
 
 Verified:
@@ -181,6 +248,29 @@ Verified:
 - DDLX object type:
   - `DDLX/EX`
 - shell creation should not auto-activate empty DDLS/DCLS/DDLX objects
+
+Additional RAP behavior-definition findings:
+
+- discovery exposes the behavior-definition collection at:
+  - `/bo/behaviordefinitions`
+- discovery also exposes BDEF-specific helper endpoints such as:
+  - parser info
+  - code completion proposals
+  - element info
+  - language documentation
+- the create-extension template path exists:
+  - `/bo/behaviordefinitions{?extended}`
+- standard SAP BDEF objects confirmed the URI model:
+  - metadata:
+    - `/bo/behaviordefinitions/{name}`
+  - source:
+    - `/bo/behaviordefinitions/{name}/source/main`
+- delete was verified on a fresh temporary BDEF object:
+  - create
+  - read
+  - write
+  - delete
+  - final read returned `404`
 
 The complete CDS/AMDP chain was verified end-to-end with:
 
@@ -333,6 +423,26 @@ The exercise also clarified the scope boundary:
 - `/UI5/APP_INDEX_CALCULATE` does not
 - Launchpad catalog maintenance does not
 - PFCG role maintenance does not
+
+The later comparison with other SAP-adjacent MCP servers also led to one practical interoperability improvement in this project:
+
+- MCP responses now keep the same text payload as before
+- when the top-level tool result is a JSON object, the server also exposes it as `structuredContent`
+- this can be disabled through:
+  - `SAP_ADT_MCP_RESPONSE_NO_STRUCTURED_CONTENT=true`
+- the goal is better compatibility across MCP clients without changing the human-readable text output
+
+The same comparison also led to one small but immediately useful local capability:
+
+- `sap_adt_search_docs` now searches the MCP repository's own Markdown documents
+- current scope is intentionally simple:
+  - local `.md` files in the project root
+  - keyword scoring
+  - short snippet extraction
+- this avoids new infrastructure while still helping external agents find:
+  - verified examples
+  - known edge cases
+  - documented scope boundaries
 
 ## 11. Overall Conclusion
 

@@ -172,6 +172,85 @@ export interface ParsedRuntimeOutput {
   };
 }
 
+export interface ParsedUserParameterEntry {
+  parameterId: string;
+  value: string;
+  text?: string;
+}
+
+export interface ParsedUserParameterHelperResult {
+  mode?: string;
+  userName?: string;
+  result?: string;
+  subrc?: number;
+  count?: number;
+  beforeCount?: number;
+  afterCount?: number;
+  parameters: ParsedUserParameterEntry[];
+}
+
+export interface LocalDocSearchResult {
+  score: number;
+  snippets: string[];
+}
+
+export function tokenizeSearchQuery(query: string): string[] {
+  return [...new Set(
+    query
+      .toLowerCase()
+      .split(/[^a-z0-9_/-]+/i)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 2),
+  )];
+}
+
+export function searchLocalDocument(content: string, query: string, maxSnippets = 3): LocalDocSearchResult | undefined {
+  const terms = tokenizeSearchQuery(query);
+  if (terms.length === 0) {
+    return undefined;
+  }
+
+  const lines = content.split(/\r?\n/);
+  const normalizedLines = lines.map((line) => line.toLowerCase());
+
+  let score = 0;
+  const snippetMatches: string[] = [];
+
+  normalizedLines.forEach((line, index) => {
+    let lineScore = 0;
+    for (const term of terms) {
+      if (line.includes(term)) {
+        lineScore += line.startsWith("#") ? 5 : 2;
+      }
+    }
+
+    if (lineScore > 0) {
+      score += lineScore;
+      if (snippetMatches.length < maxSnippets) {
+        const start = Math.max(0, index - 1);
+        const end = Math.min(lines.length, index + 2);
+        const snippet = lines
+          .slice(start, end)
+          .map((snippetLine) => snippetLine.trim())
+          .filter((snippetLine) => snippetLine !== "")
+          .join(" | ");
+        if (snippet !== "" && !snippetMatches.includes(snippet)) {
+          snippetMatches.push(snippet);
+        }
+      }
+    }
+  });
+
+  if (score === 0) {
+    return undefined;
+  }
+
+  return {
+    score,
+    snippets: snippetMatches,
+  };
+}
+
 export function parseAbapUnitResult(xml: string): ParsedAbapUnitResult {
   const trimmed = xml.trim();
 
@@ -209,6 +288,76 @@ export function parseAbapUnitResult(xml: string): ParsedAbapUnitResult {
     testMethods: [],
     failureMessages: [],
   };
+}
+
+export function parseUserParameterHelperOutput(output: string): ParsedUserParameterHelperResult {
+  const result: ParsedUserParameterHelperResult = {
+    parameters: [],
+  };
+
+  const lines = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    if (line.startsWith("PARAM;")) {
+      const attrs = parseSemicolonKeyValueLine(line.slice("PARAM;".length));
+      const parameterId = attrs.PARID ?? "";
+      if (!parameterId) {
+        continue;
+      }
+      result.parameters.push({
+        parameterId,
+        value: attrs.PARVA ?? "",
+        text: attrs.PARTEXT,
+      });
+      continue;
+    }
+
+    const attrs = parseSemicolonKeyValueLine(line);
+    if (attrs.MODE) {
+      result.mode = attrs.MODE;
+    }
+    if (attrs.USER) {
+      result.userName = attrs.USER;
+    }
+    if (attrs.RESULT) {
+      result.result = attrs.RESULT;
+    }
+    if (attrs.SUBRC && /^\d+$/.test(attrs.SUBRC)) {
+      result.subrc = Number.parseInt(attrs.SUBRC, 10);
+    }
+    if (attrs.COUNT && /^\d+$/.test(attrs.COUNT)) {
+      result.count = Number.parseInt(attrs.COUNT, 10);
+    }
+    if (attrs.BEFORE_COUNT && /^\d+$/.test(attrs.BEFORE_COUNT)) {
+      result.beforeCount = Number.parseInt(attrs.BEFORE_COUNT, 10);
+    }
+    if (attrs.AFTER_COUNT && /^\d+$/.test(attrs.AFTER_COUNT)) {
+      result.afterCount = Number.parseInt(attrs.AFTER_COUNT, 10);
+    }
+  }
+
+  return result;
+}
+
+function parseSemicolonKeyValueLine(line: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const part of line.split(";")) {
+    const trimmed = part.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex === -1) {
+      continue;
+    }
+    const key = trimmed.slice(0, separatorIndex).trim().toUpperCase();
+    const value = trimmed.slice(separatorIndex + 1).trim();
+    result[key] = value;
+  }
+  return result;
 }
 
 function parseJUnitAbapUnitResult(xml: string): ParsedAbapUnitResult {

@@ -1,8 +1,11 @@
 export type SupportedObjectType =
+  | "functiongroup"
+  | "functionmodule"
   | "interface"
   | "class"
   | "program"
   | "ddls"
+  | "bdef"
   | "dcls"
   | "ddlx";
 
@@ -57,6 +60,7 @@ export interface AdtLockResult {
 export interface AdtActivationRequest {
   objectType?: SupportedObjectType;
   objectName?: string;
+  containerName?: string;
   uri?: string;
   name?: string;
   type?: string;
@@ -71,6 +75,22 @@ export interface AdtCreatePackageInput {
   recordChanges: boolean;
   softwareComponent: string;
   softwareComponentDescription: string;
+}
+
+export interface AdtCreateFunctionGroupInput {
+  groupName: string;
+  description: string;
+  packageName: string;
+  masterSystem: string;
+  transportRequest?: string;
+}
+
+export interface AdtCreateFunctionModuleInput {
+  groupName: string;
+  functionModuleName: string;
+  description: string;
+  packageName: string;
+  transportRequest?: string;
 }
 
 export interface AdtCreateTransportRequestInput {
@@ -96,6 +116,33 @@ export interface AdtCreateTransactionInput {
 export interface AdtDeleteTransactionInput {
   transactionCode: string;
   helperPackageName: string;
+  masterSystem?: string;
+  transportRequest?: string;
+  helperClassName?: string;
+  deleteHelperAfterRun?: boolean;
+}
+
+export interface AdtUserParameterEntryInput {
+  parameterId: string;
+  value: string;
+  text?: string;
+}
+
+export interface AdtGetUserParametersInput {
+  helperPackageName: string;
+  userName?: string;
+  parameterIds?: string[];
+  withText?: boolean;
+  masterSystem?: string;
+  transportRequest?: string;
+  helperClassName?: string;
+  deleteHelperAfterRun?: boolean;
+}
+
+export interface AdtSetUserParametersInput {
+  helperPackageName: string;
+  userName?: string;
+  parameters: AdtUserParameterEntryInput[];
   masterSystem?: string;
   transportRequest?: string;
   helperClassName?: string;
@@ -154,6 +201,14 @@ export interface AdtCreateInterfaceInput {
 
 export interface AdtCreateDdlsInput {
   ddlName: string;
+  description: string;
+  packageName: string;
+  masterSystem: string;
+  transportRequest?: string;
+}
+
+export interface AdtCreateBdefInput {
+  bdefName: string;
   description: string;
   packageName: string;
   masterSystem: string;
@@ -285,6 +340,7 @@ export interface AdtRunAbapUnitInput {
 export interface AdtDependencyObjectInput {
   objectType: SupportedObjectType;
   objectName?: string;
+  containerName?: string;
   uri?: string;
   packageName?: string;
 }
@@ -303,6 +359,7 @@ export interface AdtActivateObjectSetInput {
 export interface AdtDeleteObjectInput {
   objectType: DeletableObjectType;
   objectName?: string;
+  containerName?: string;
   uri?: string;
   transportRequest?: string;
 }

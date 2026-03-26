@@ -4,6 +4,7 @@
 
 ### Discovery And Read
 
+- `sap_adt_search_docs`
 - `sap_adt_discover`
 - `sap_adt_read_object`
 - `sap_adt_read_search_help`
@@ -25,6 +26,11 @@
 - `sap_adt_run_abap_unit`
 - `sap_adt_auto_verify_object`
 
+### User Parameters
+
+- `sap_adt_get_user_parameters`
+- `sap_adt_set_user_parameters`
+
 ### Transport Handling
 
 - `sap_adt_create_transport_request`
@@ -38,12 +44,15 @@
 ### Repository Creation
 
 - `sap_adt_create_package`
+- `sap_adt_create_function_group`
+- `sap_adt_create_function_module`
 - `sap_adt_create_interface`
 - `sap_adt_create_transaction`
 - `sap_adt_delete_transaction`
 - `sap_adt_create_program`
 - `sap_adt_create_class`
 - `sap_adt_create_ddls`
+- `sap_adt_create_bdef`
 - `sap_adt_create_dcls`
 - `sap_adt_create_ddlx`
 - `sap_adt_create_abap_scaffold`
@@ -77,6 +86,13 @@ Outputs are returned as text payloads containing compact JSON:
 - tool-specific summaries for transport and ABAP Unit flows
 
 This is deliberate. It is easier for MCP clients to reason over compact JSON text than over raw XML only.
+
+When the top-level result is a JSON object, the server can also expose the same payload as `structuredContent`.
+
+- default:
+  - enabled
+- compatibility switch:
+  - `SAP_ADT_MCP_RESPONSE_NO_STRUCTURED_CONTENT=true`
 
 ## Verified Phases
 
@@ -125,6 +141,8 @@ This is deliberate. It is easier for MCP clients to reason over compact JSON tex
 - dependency-aware activation helper
 - small-set mass activation with stop-or-continue behavior
 - verified report-transaction create/delete helper flow
+- verified native RAP behavior-definition create/read/write/delete flow
+- verified persistent user-parameter get/set helper flow
 
 ## Recommended Next Phase
 
@@ -142,6 +160,8 @@ Even with transaction support, the MCP still does not aim to cover the full clas
 - classic report transaction deletion
 - no generic dynpro transaction modeling
 - no parameter transaction modeling yet
+- no generic transient SAP memory parameter tooling yet
+- no fully verified BDEF activation flow yet in this Docker environment
 
 - BSP upload
 - app index calculation

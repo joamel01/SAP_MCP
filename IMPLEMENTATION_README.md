@@ -122,6 +122,12 @@ Also verified in `1.3.0`:
   - `already_exists`
   - `lock_or_transport_error`
   - `create_failed`
+- one lightweight local documentation helper now exists:
+  - `sap_adt_search_docs`
+  - current scope:
+    - Markdown files in the repository root
+    - keyword scoring
+    - snippet extraction
 
 ## What Was New In 1.1.0
 
@@ -238,12 +244,17 @@ The same iteration also verified that some DDIC objects behave as text-source ob
 - `sap_adt_create_transport_request`
 - `sap_adt_create_package`
 - `sap_adt_create_abap_scaffold`
+- `sap_adt_create_function_group`
+- `sap_adt_create_function_module`
 - `sap_adt_create_interface`
 - `sap_adt_create_transaction`
 - `sap_adt_delete_transaction`
+- `sap_adt_get_user_parameters`
+- `sap_adt_set_user_parameters`
 - `sap_adt_create_program`
 - `sap_adt_create_class`
 - `sap_adt_create_ddls`
+- `sap_adt_create_bdef`
 - `sap_adt_create_dcls`
 - `sap_adt_create_ddlx`
 - `sap_adt_create_dataelement`
@@ -257,7 +268,33 @@ Transaction scope in the current baseline:
 - verified creation and deletion of classic report transactions
 - implemented through a temporary helper class that calls:
   - `RPY_TRANSACTION_INSERT`
-  - `RPY_TRANSACTION_DELETE`
+- `RPY_TRANSACTION_DELETE`
+
+Behavior-definition scope in the current baseline:
+
+- verified native create:
+  - `POST /bo/behaviordefinitions`
+- verified native source read/write:
+  - `/bo/behaviordefinitions/{name}/source/main`
+- verified native delete through normal lock/delete handling
+- verified activation object type:
+  - `BDEF/BDO`
+- current environment limitation:
+  - generic ADT activation returned a no-op result for both standard and temporary BDEF objects in the Docker trial
+  - the MCP therefore documents BDEF activation as environment-sensitive rather than fully verified
+
+User-parameter scope in the current baseline:
+
+- verified helper-class based read:
+  - `SUSR_USER_PARAMETERS_GET`
+- verified helper-class based update:
+  - `SUSR_USER_PARAMETERS_GET`
+  - `SUSR_USER_PARAMETERS_PUT`
+- verified semantic scope:
+  - persistent user parameters
+  - same-user round-trip verification for the MCP runtime user
+- explicit non-scope:
+  - transient session-memory behavior for plain `SET PARAMETER ID` / `GET PARAMETER ID`
 - helper deletion is supported after the run
 - transaction delete requires an explicit helper package input for the temporary helper class
 
@@ -273,6 +310,7 @@ Common:
 
 - `SAP_ADT_TIMEOUT_MS`
 - `SAP_ADT_VERIFY_TLS`
+- `SAP_ADT_MCP_RESPONSE_NO_STRUCTURED_CONTENT`
 - `SAP_ADT_ALLOWED_PACKAGES`
 - `SAP_ADT_ALLOWED_OBJECT_TYPES`
 - `SAP_ADT_URI_TEMPLATES_FILE`
@@ -294,7 +332,8 @@ Default values for create-tools:
 5. Run `npm run smoke`
 6. Test `sap_adt_discover`
 7. Test `sap_adt_read_object`
-8. Then test a harmless `sap_adt_write_object` against a Z-object
+8. If your MCP client prefers text-only tool payloads, set `SAP_ADT_MCP_RESPONSE_NO_STRUCTURED_CONTENT=true`
+9. Then test a harmless `sap_adt_write_object` against a Z-object
 
 ## Verified Container Configuration
 

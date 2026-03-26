@@ -3,12 +3,15 @@ import type {
   AdtActivationRequest,
   AdtActivateDependencyChainInput,
   AdtActivateObjectSetInput,
+  AdtCreateBdefInput,
   AdtCreateClassInput,
   AdtCreateDclsInput,
   AdtCreateDataElementInput,
   AdtCreateDdlsInput,
   AdtCreateDdlxInput,
   AdtCreateDomainInput,
+  AdtCreateFunctionGroupInput,
+  AdtCreateFunctionModuleInput,
   AdtCreateInterfaceInput,
   AdtCreatePackageInput,
   AdtCreateProgramInput,
@@ -18,6 +21,7 @@ import type {
   AdtCreateTransportRequestInput,
   AdtDeleteTransactionInput,
   AdtDeleteTransportRequestInput,
+  AdtGetUserParametersInput,
   AdtGetTransportRequestInput,
   AdtListTransportRequestsInput,
   AdtReleaseTransportRequestInput,
@@ -25,6 +29,7 @@ import type {
   AdtRunClassInput,
   AdtRunProgramInput,
   AdtReadSearchHelpInput,
+  AdtSetUserParametersInput,
   AdtCreateStructureInput,
   AdtCreateTableInput,
   AdtCreateTableTypeInput,
@@ -52,6 +57,7 @@ import {
 export interface ReadObjectInput {
   objectType: SupportedObjectType;
   objectName?: string;
+  containerName?: string;
   uri?: string;
 }
 
@@ -120,7 +126,7 @@ export class AdtClient {
   }
 
   async readObject(input: ReadObjectInput): Promise<AdtResponseSummary> {
-    const uri = this.resolveObjectUri(input.objectType, input.objectName, input.uri);
+    const uri = this.resolveObjectUri(input.objectType, input.objectName, input.containerName, input.uri);
     return this.request("GET", uri);
   }
 
@@ -276,6 +282,104 @@ export class AdtClient {
     return responses;
   }
 
+  async getUserParameters(input: AdtGetUserParametersInput): Promise<AdtResponseSummary[]> {
+    const helperClassName = truncateObjectName(
+      input.helperClassName ?? `ZCL_MCP_PGET_${input.userName ?? this.config.username}`,
+      30,
+    );
+    const responses: AdtResponseSummary[] = [];
+
+    try {
+      responses.push(await this.createClass({
+        className: helperClassName,
+        description: `MCP helper for user parameters ${normalizeObjectName(input.userName ?? this.config.username)}`,
+        packageName: input.helperPackageName,
+        masterSystem: input.masterSystem ?? this.config.defaultMasterSystem,
+        transportRequest: input.transportRequest,
+      }));
+    } catch (error) {
+      const message = String(error);
+      if (!message.includes("already_exists")) {
+        throw error;
+      }
+    }
+
+    responses.push(await this.writeObject({
+      objectType: "class",
+      objectName: helperClassName,
+      content: this.buildGetUserParametersHelperClassSource(input, helperClassName),
+      transportRequest: input.transportRequest,
+      activateAfterWrite: true,
+    }));
+
+    const runResponse = await this.runClass({ className: helperClassName });
+    this.ensureSuccess(
+      runResponse,
+      `Failed to run helper class ${helperClassName} for user parameter read ${normalizeObjectName(input.userName ?? this.config.username)}`,
+    );
+    this.ensureUserParameterHelperSuccess("GET", input.userName ?? this.config.username, runResponse.body);
+    responses.push(runResponse);
+
+    if (input.deleteHelperAfterRun ?? true) {
+      responses.push(await this.deleteObject({
+        objectType: "class",
+        objectName: helperClassName,
+        transportRequest: input.transportRequest,
+      }));
+    }
+
+    return responses;
+  }
+
+  async setUserParameters(input: AdtSetUserParametersInput): Promise<AdtResponseSummary[]> {
+    const helperClassName = truncateObjectName(
+      input.helperClassName ?? `ZCL_MCP_PSET_${input.userName ?? this.config.username}`,
+      30,
+    );
+    const responses: AdtResponseSummary[] = [];
+
+    try {
+      responses.push(await this.createClass({
+        className: helperClassName,
+        description: `MCP helper for user parameters ${normalizeObjectName(input.userName ?? this.config.username)}`,
+        packageName: input.helperPackageName,
+        masterSystem: input.masterSystem ?? this.config.defaultMasterSystem,
+        transportRequest: input.transportRequest,
+      }));
+    } catch (error) {
+      const message = String(error);
+      if (!message.includes("already_exists")) {
+        throw error;
+      }
+    }
+
+    responses.push(await this.writeObject({
+      objectType: "class",
+      objectName: helperClassName,
+      content: this.buildSetUserParametersHelperClassSource(input, helperClassName),
+      transportRequest: input.transportRequest,
+      activateAfterWrite: true,
+    }));
+
+    const runResponse = await this.runClass({ className: helperClassName });
+    this.ensureSuccess(
+      runResponse,
+      `Failed to run helper class ${helperClassName} for user parameter update ${normalizeObjectName(input.userName ?? this.config.username)}`,
+    );
+    this.ensureUserParameterHelperSuccess("SET", input.userName ?? this.config.username, runResponse.body);
+    responses.push(runResponse);
+
+    if (input.deleteHelperAfterRun ?? true) {
+      responses.push(await this.deleteObject({
+        objectType: "class",
+        objectName: helperClassName,
+        transportRequest: input.transportRequest,
+      }));
+    }
+
+    return responses;
+  }
+
   async runProgram(input: AdtRunProgramInput): Promise<AdtResponseSummary> {
     const normalizedName = normalizeObjectName(input.programName);
     const query = new URLSearchParams();
@@ -327,6 +431,7 @@ export class AdtClient {
   async runAbapUnit(input: AdtRunAbapUnitInput): Promise<AdtResponseSummary> {
     const objectType = input.objectType;
     const resolvedUri = this.resolveObjectUri(objectType, input.objectName, input.uri);
+
     const definitionUri = this.toDefinitionIdentifierUri(
       objectType,
       input.objectName,
@@ -376,7 +481,12 @@ export class AdtClient {
   }
 
   async writeObject(input: WriteObjectInput): Promise<AdtResponseSummary> {
-    const uri = this.resolveObjectUri(input.objectType, input.objectName, input.uri);
+    const uri = this.resolveObjectUri(
+      input.objectType,
+      input.objectName,
+      input.containerName,
+      input.uri,
+    );
     const lockResult = await this.lock(uri);
 
     try {
@@ -404,7 +514,7 @@ export class AdtClient {
       if (input.activateAfterWrite) {
         await this.unlock(uri, lockResult.lockHandle);
         await this.activateObject({
-          uri: this.toDefinitionIdentifierUri(input.objectType, input.objectName, uri),
+          uri: this.toDefinitionIdentifierUri(input.objectType, input.objectName, uri, input.containerName),
           name: input.objectName,
           type: this.toActivationObjectType(input.objectType),
         });
@@ -424,7 +534,7 @@ export class AdtClient {
   }
 
   async deleteObject(input: AdtDeleteObjectInput): Promise<AdtResponseSummary> {
-    const deleteUri = this.resolveDeleteUri(input.objectType, input.objectName, input.uri);
+    const deleteUri = this.resolveDeleteUri(input.objectType, input.objectName, input.containerName, input.uri);
     const lockUri = this.resolveDeleteLockUri(input.objectType, deleteUri);
     const lockResult = await this.lock(lockUri);
 
@@ -463,6 +573,43 @@ export class AdtClient {
       stateful: true,
     });
     this.ensureSuccess(response, `Failed to create package ${normalizeObjectName(input.packageName)}`);
+    return response;
+  }
+
+  async createFunctionGroup(input: AdtCreateFunctionGroupInput): Promise<AdtResponseSummary> {
+    const normalizedName = normalizeObjectName(input.groupName);
+    const transportRequest = await this.resolveEffectiveTransportRequest(input.transportRequest);
+    const response = await this.request("POST", `/functions/groups?${this.buildCorrNrQuery(transportRequest)}`, {
+      body: this.buildFunctionGroupXml(input),
+      headers: {
+        "Content-Type": "application/vnd.sap.adt.functions.groups.v3+xml",
+      },
+      stateful: true,
+    });
+    if (!(await this.canContinueAfterCreateLock(response, "functiongroup", normalizedName))) {
+      this.ensureCreateSuccess(response, "function group", normalizedName);
+    }
+    return response;
+  }
+
+  async createFunctionModule(input: AdtCreateFunctionModuleInput): Promise<AdtResponseSummary> {
+    const normalizedGroup = normalizeObjectName(input.groupName);
+    const normalizedName = normalizeObjectName(input.functionModuleName);
+    const transportRequest = await this.resolveEffectiveTransportRequest(input.transportRequest);
+    const response = await this.request(
+      "POST",
+      `/functions/groups/${normalizedGroup.toLowerCase()}/fmodules?${this.buildCorrNrQuery(transportRequest)}`,
+      {
+        body: this.buildFunctionModuleXml(input),
+        headers: {
+          "Content-Type": "application/vnd.sap.adt.functions.fmodules.v3+xml",
+        },
+        stateful: true,
+      },
+    );
+    if (!(await this.canContinueAfterCreateLock(response, "functionmodule", normalizedName, normalizedGroup))) {
+      this.ensureCreateSuccess(response, "function module", normalizedName);
+    }
     return response;
   }
 
@@ -712,6 +859,24 @@ export class AdtClient {
     });
     if (!(await this.canContinueAfterCreateLock(response, "ddls", normalizedName))) {
       this.ensureCreateSuccess(response, "ddls", normalizedName);
+    }
+    return response;
+  }
+
+  async createBdef(input: AdtCreateBdefInput): Promise<AdtResponseSummary> {
+    const normalizedName = normalizeObjectName(input.bdefName);
+    const transportRequest = await this.resolveEffectiveTransportRequest(input.transportRequest);
+    const bdefXml = this.buildBdefXml(input);
+    const response = await this.request("POST", `/bo/behaviordefinitions?${this.buildCorrNrQuery(transportRequest)}`, {
+      body: bdefXml,
+      headers: {
+        "Content-Type": "application/vnd.sap.adt.blues.v1+xml",
+        Accept: "application/vnd.sap.adt.blues.v1+xml",
+      },
+      stateful: true,
+    });
+    if (!(await this.canContinueAfterCreateLock(response, "bdef", normalizedName))) {
+      this.ensureCreateSuccess(response, "bdef", normalizedName);
     }
     return response;
   }
@@ -1026,7 +1191,7 @@ export class AdtClient {
   async activateObject(request: AdtActivationRequest): Promise<AdtResponseSummary> {
     const activationInputName = request.objectName ?? request.name;
     const rawUri = request.objectType
-      ? this.resolveObjectUri(request.objectType, activationInputName, request.uri)
+      ? this.resolveObjectUri(request.objectType, activationInputName, request.containerName, request.uri)
       : request.uri;
 
     if (!rawUri) {
@@ -1035,7 +1200,7 @@ export class AdtClient {
 
     const activationUri = request.objectType
       ? this.toAbsoluteAdtUri(
-        this.toDefinitionIdentifierUri(request.objectType, activationInputName, rawUri),
+        this.toDefinitionIdentifierUri(request.objectType, activationInputName, rawUri, request.containerName),
       )
       : this.toAbsoluteAdtUri(rawUri).replace(/\/source\/main$/i, "");
 
@@ -1287,28 +1452,37 @@ export class AdtClient {
   ): OrderedDependencyObject[] {
     const rankByProfile: Record<"auto" | "consumerProgram" | "consumptionView", Record<SupportedObjectType, number>> = {
       auto: {
+        functiongroup: 5,
+        functionmodule: 10,
         interface: 5,
-        ddls: 10,
-        dcls: 20,
-        ddlx: 30,
-        class: 40,
-        program: 50,
+        ddls: 20,
+        bdef: 55,
+        dcls: 30,
+        ddlx: 40,
+        class: 50,
+        program: 60,
       },
       consumerProgram: {
+        functiongroup: 5,
+        functionmodule: 10,
         interface: 10,
         ddls: 20,
         class: 30,
+        bdef: 35,
         program: 40,
         dcls: 50,
         ddlx: 60,
       },
       consumptionView: {
+        functiongroup: 5,
+        functionmodule: 10,
         interface: 5,
-        ddls: 10,
-        dcls: 20,
-        ddlx: 30,
-        class: 40,
-        program: 50,
+        ddls: 20,
+        bdef: 55,
+        dcls: 30,
+        ddlx: 40,
+        class: 50,
+        program: 60,
       },
     };
 
@@ -1579,6 +1753,7 @@ export class AdtClient {
   private resolveObjectUri(
     objectType: SupportedObjectType,
     objectName?: string,
+    containerName?: string,
     explicitUri?: string,
   ): string {
     if (explicitUri) {
@@ -1596,6 +1771,7 @@ export class AdtClient {
 
     return applyTemplate(template.uriTemplate, {
       objectName: normalizeObjectName(objectName),
+      containerName: containerName ? normalizeObjectName(containerName) : "",
     });
   }
 
@@ -1603,6 +1779,7 @@ export class AdtClient {
     objectType: SupportedObjectType,
     objectName: string | undefined,
     sourceUri: string,
+    containerName?: string,
   ): string {
     if (!objectName) {
       return sourceUri.replace(/\/source\/main$/, "");
@@ -1610,6 +1787,13 @@ export class AdtClient {
 
     const normalized = normalizeObjectName(objectName).toLowerCase();
     switch (objectType) {
+      case "functiongroup":
+        return `/functions/groups/${normalized}`;
+      case "functionmodule":
+        if (!containerName) {
+          throw new Error("containerName must be supplied for function module URIs.");
+        }
+        return `/functions/groups/${normalizeObjectName(containerName).toLowerCase()}/fmodules/${normalized}`;
       case "interface":
         return `/oo/interfaces/${normalized}`;
       case "class":
@@ -1618,6 +1802,8 @@ export class AdtClient {
         return `/programs/programs/${normalized}`;
       case "ddls":
         return `/ddic/ddl/sources/${normalized}`;
+      case "bdef":
+        return `/bo/behaviordefinitions/${normalized}`;
       case "dcls":
         return `/acm/dcl/sources/${normalized}`;
       case "ddlx":
@@ -1629,6 +1815,10 @@ export class AdtClient {
 
   private toActivationObjectType(objectType: SupportedObjectType): string | undefined {
     switch (objectType) {
+      case "functiongroup":
+        return "FUGR/F";
+      case "functionmodule":
+        return "FUGR/FF";
       case "interface":
         return "INTF/OI";
       case "class":
@@ -1637,6 +1827,8 @@ export class AdtClient {
         return "PROG/P";
       case "ddls":
         return "DDLS/DF";
+      case "bdef":
+        return "BDEF/BDO";
       case "dcls":
         return "DCLS/DL";
       case "ddlx":
@@ -1649,6 +1841,12 @@ export class AdtClient {
   private inferActivationObjectType(uri: string): string | undefined {
     const normalizedUri = uri.toLowerCase();
 
+    if (normalizedUri.includes("/functions/groups/") && normalizedUri.includes("/fmodules/")) {
+      return "FUGR/FF";
+    }
+    if (normalizedUri.includes("/functions/groups/")) {
+      return "FUGR/F";
+    }
     if (normalizedUri.includes("/oo/interfaces/")) {
       return "INTF/OI";
     }
@@ -1660,6 +1858,9 @@ export class AdtClient {
     }
     if (normalizedUri.includes("/ddic/ddl/sources/")) {
       return "DDLS/DF";
+    }
+    if (normalizedUri.includes("/bo/behaviordefinitions/")) {
+      return "BDEF/BDO";
     }
     if (normalizedUri.includes("/acm/dcl/sources/")) {
       return "DCLS/DL";
@@ -1702,6 +1903,7 @@ export class AdtClient {
   private resolveDeleteUri(
     objectType: DeletableObjectType,
     objectName?: string,
+    containerName?: string,
     explicitUri?: string,
   ): string {
     if (explicitUri) {
@@ -1731,17 +1933,21 @@ export class AdtClient {
         return this.toDefinitionIdentifierUri(
           objectType,
           objectName,
-          this.resolveObjectUri(objectType, objectName),
+          this.resolveObjectUri(objectType, objectName, containerName),
+          containerName,
         );
     }
   }
 
   private resolveDeleteLockUri(objectType: DeletableObjectType, deleteUri: string): string {
     switch (objectType) {
+      case "functiongroup":
+      case "functionmodule":
       case "interface":
       case "class":
       case "program":
       case "ddls":
+      case "bdef":
       case "dcls":
       case "ddlx":
       case "table":
@@ -1790,6 +1996,30 @@ export class AdtClient {
   private buildTransportRequestActionXml(requestNumber: string): string {
     return `<?xml version="1.0" encoding="utf-8"?>` +
       `<tm:root tm:number="${xmlEscape(requestNumber)}" xmlns:tm="http://www.sap.com/cts/adt/tm"/>`;
+  }
+
+  private buildFunctionGroupXml(input: AdtCreateFunctionGroupInput): string {
+    const normalizedName = normalizeObjectName(input.groupName);
+    const normalizedPackage = normalizeObjectName(input.packageName);
+
+    return `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<fugr:abapFunctionGroup xmlns:fugr="http://www.sap.com/adt/functions/groups" xmlns:adtcore="http://www.sap.com/adt/core" ` +
+      `adtcore:description="${xmlEscape(input.description)}" adtcore:name="${normalizedName}" adtcore:type="FUGR/F" adtcore:language="EN" ` +
+      `adtcore:masterLanguage="EN" adtcore:masterSystem="${input.masterSystem}" adtcore:responsible="${this.config.username.toUpperCase()}">` +
+      `<adtcore:packageRef adtcore:name="${normalizedPackage}"/>` +
+      `</fugr:abapFunctionGroup>`;
+  }
+
+  private buildFunctionModuleXml(input: AdtCreateFunctionModuleInput): string {
+    const normalizedGroup = normalizeObjectName(input.groupName);
+    const normalizedName = normalizeObjectName(input.functionModuleName);
+    const normalizedPackage = normalizeObjectName(input.packageName);
+
+    return `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<fmodule:abapFunctionModule xmlns:fmodule="http://www.sap.com/adt/functions/fmodules" xmlns:adtcore="http://www.sap.com/adt/core" ` +
+      `adtcore:name="${normalizedName}" adtcore:type="FUGR/FF" adtcore:description="${xmlEscape(input.description)}" adtcore:language="EN">` +
+      `<adtcore:containerRef adtcore:uri="/sap/bc/adt/functions/groups/${normalizedGroup.toLowerCase()}" adtcore:type="FUGR/F" adtcore:name="${normalizedGroup}" adtcore:packageName="${normalizedPackage}"/>` +
+      `</fmodule:abapFunctionModule>`;
   }
 
   private parseTransportRequestDetail(xml: string): {
@@ -1890,6 +2120,18 @@ export class AdtClient {
       `adtcore:masterLanguage="EN" adtcore:masterSystem="${input.masterSystem}" adtcore:responsible="${this.config.username.toUpperCase()}">` +
       `<adtcore:packageRef adtcore:name="${normalizedPackage}"/>` +
       `</ddl:ddlSource>`;
+  }
+
+  private buildBdefXml(input: AdtCreateBdefInput): string {
+    const normalizedName = normalizeObjectName(input.bdefName);
+    const normalizedPackage = normalizeObjectName(input.packageName);
+
+    return `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<blue:blueSource xmlns:blue="http://www.sap.com/wbobj/blue" xmlns:abapsource="http://www.sap.com/adt/abapsource" xmlns:adtcore="http://www.sap.com/adt/core" ` +
+      `adtcore:description="${xmlEscape(input.description)}" adtcore:name="${normalizedName}" adtcore:type="BDEF/BDO" adtcore:language="EN" ` +
+      `adtcore:masterLanguage="EN" adtcore:masterSystem="${input.masterSystem}" adtcore:abapLanguageVersion="standard" adtcore:responsible="${this.config.username.toUpperCase()}">` +
+      `<adtcore:packageRef adtcore:uri="/sap/bc/adt/packages/${normalizedPackage.toLowerCase()}" adtcore:type="DEVC/K" adtcore:name="${normalizedPackage}"/>` +
+      `</blue:blueSource>`;
   }
 
   private buildDclsXml(input: AdtCreateDclsInput): string {
@@ -2293,6 +2535,209 @@ CLASS ${helperClassName} IMPLEMENTATION.
 ENDCLASS.`;
   }
 
+  private buildGetUserParametersHelperClassSource(
+    input: AdtGetUserParametersInput,
+    helperClassName: string,
+  ): string {
+    const userName = normalizeObjectName(input.userName ?? this.config.username);
+    const filterTableLiteral = this.buildUserParameterIdTableLiteral(input.parameterIds ?? []);
+
+    return `CLASS ${helperClassName} DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PUBLIC.
+
+  PUBLIC SECTION.
+    INTERFACES if_oo_adt_classrun.
+ENDCLASS.
+
+CLASS ${helperClassName} IMPLEMENTATION.
+  METHOD if_oo_adt_classrun~main.
+    CONSTANTS:
+      lc_user      TYPE usr02-bname VALUE ${this.toAbapStringLiteral(userName)},
+      lc_with_text TYPE char01 VALUE ${this.toAbapStringLiteral(input.withText === false ? "" : "X")}.
+
+    DATA:
+      lt_parameters TYPE ustyp_t_parameters,
+      lt_filter     TYPE STANDARD TABLE OF usr05-parid WITH EMPTY KEY,
+      lv_count      TYPE i,
+      lv_subrc      TYPE sysubrc,
+      lv_result     TYPE string,
+      lv_exception  TYPE string.
+
+    TRY.
+        lt_filter = VALUE ${filterTableLiteral}.
+
+        CALL FUNCTION 'SUSR_USER_PARAMETERS_GET'
+          EXPORTING
+            user_name           = lc_user
+            with_text           = lc_with_text
+          TABLES
+            user_parameters     = lt_parameters
+          EXCEPTIONS
+            user_name_not_exist = 1
+            OTHERS              = 2.
+
+        lv_subrc = sy-subrc.
+
+        lv_result = SWITCH string( lv_subrc
+          WHEN 0 THEN 'OK'
+          WHEN 1 THEN 'USER_NAME_NOT_EXIST'
+          ELSE |SUBRC_{ lv_subrc }| ).
+
+        LOOP AT lt_parameters INTO DATA(ls_parameter).
+          IF lt_filter IS NOT INITIAL AND NOT line_exists( lt_filter[ table_line = ls_parameter-parid ] ).
+            CONTINUE.
+          ENDIF.
+          lv_count += 1.
+          out->write( |PARAM;PARID={ ls_parameter-parid };PARVA={ ls_parameter-parva };PARTEXT={ ls_parameter-partext }| ).
+        ENDLOOP.
+
+        out->write( |MODE=GET; USER={ lc_user }; RESULT={ lv_result }; SUBRC={ lv_subrc }; COUNT={ lv_count }| ).
+      CATCH cx_root INTO DATA(lx_root).
+        lv_exception = lx_root->get_text( ).
+        out->write( |MODE=GET; USER={ lc_user }; RESULT=EXCEPTION; TEXT={ lv_exception }| ).
+    ENDTRY.
+  ENDMETHOD.
+ENDCLASS.`;
+  }
+
+  private buildSetUserParametersHelperClassSource(
+    input: AdtSetUserParametersInput,
+    helperClassName: string,
+  ): string {
+    const userName = normalizeObjectName(input.userName ?? this.config.username);
+    const parameterTableLiteral = this.buildUserParameterValueTableLiteral(input.parameters);
+    const filterTableLiteral = this.buildUserParameterIdTableLiteral(
+      input.parameters.map((parameter) => parameter.parameterId),
+    );
+
+    return `CLASS ${helperClassName} DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PUBLIC.
+
+  PUBLIC SECTION.
+    INTERFACES if_oo_adt_classrun.
+ENDCLASS.
+
+CLASS ${helperClassName} IMPLEMENTATION.
+  METHOD if_oo_adt_classrun~main.
+    CONSTANTS lc_user TYPE usr02-bname VALUE ${this.toAbapStringLiteral(userName)}.
+
+    DATA:
+      lt_before     TYPE ustyp_t_parameters,
+      lt_after      TYPE ustyp_t_parameters,
+      lt_verify     TYPE ustyp_t_parameters,
+      lt_input      TYPE ustyp_t_parameters,
+      lt_filter     TYPE STANDARD TABLE OF usr05-parid WITH EMPTY KEY,
+      lv_get_subrc  TYPE sysubrc,
+      lv_put_subrc  TYPE sysubrc,
+      lv_result     TYPE string,
+      lv_exception  TYPE string.
+
+    TRY.
+        lt_input = VALUE ${parameterTableLiteral}.
+        lt_filter = VALUE ${filterTableLiteral}.
+
+        CALL FUNCTION 'SUSR_USER_PARAMETERS_GET'
+          EXPORTING
+            user_name           = lc_user
+            with_text           = 'X'
+          TABLES
+            user_parameters     = lt_before
+          EXCEPTIONS
+            user_name_not_exist = 1
+            OTHERS              = 2.
+
+        lv_get_subrc = sy-subrc.
+
+        IF lv_get_subrc <> 0.
+          lv_result = SWITCH string( lv_get_subrc
+            WHEN 1 THEN 'USER_NAME_NOT_EXIST'
+            ELSE |SUBRC_{ lv_get_subrc }| ).
+          out->write( |MODE=SET; USER={ lc_user }; RESULT={ lv_result }; SUBRC={ lv_get_subrc }; BEFORE_COUNT={ lines( lt_before ) }; AFTER_COUNT={ lines( lt_before ) }| ).
+          RETURN.
+        ENDIF.
+
+        lt_after = lt_before.
+
+        LOOP AT lt_input INTO DATA(ls_input).
+          READ TABLE lt_after WITH KEY parid = ls_input-parid ASSIGNING FIELD-SYMBOL(<ls_after>).
+          IF sy-subrc = 0.
+            <ls_after>-parva = ls_input-parva.
+            IF ls_input-partext IS NOT INITIAL.
+              <ls_after>-partext = ls_input-partext.
+            ENDIF.
+          ELSE.
+            APPEND ls_input TO lt_after.
+          ENDIF.
+        ENDLOOP.
+
+        CALL FUNCTION 'SUSR_USER_PARAMETERS_PUT'
+          EXPORTING
+            user_name           = lc_user
+          TABLES
+            user_parameters     = lt_after
+          EXCEPTIONS
+            user_name_not_exist = 1
+            OTHERS              = 2.
+
+        lv_put_subrc = sy-subrc.
+
+        lv_result = SWITCH string( lv_put_subrc
+          WHEN 0 THEN 'OK'
+          WHEN 1 THEN 'USER_NAME_NOT_EXIST'
+          ELSE |SUBRC_{ lv_put_subrc }| ).
+
+        CALL FUNCTION 'SUSR_USER_PARAMETERS_GET'
+          EXPORTING
+            user_name           = lc_user
+            with_text           = 'X'
+          TABLES
+            user_parameters     = lt_verify
+          EXCEPTIONS
+            user_name_not_exist = 1
+            OTHERS              = 2.
+
+        LOOP AT lt_verify INTO DATA(ls_verify).
+          IF lt_filter IS NOT INITIAL AND NOT line_exists( lt_filter[ table_line = ls_verify-parid ] ).
+            CONTINUE.
+          ENDIF.
+          out->write( |PARAM;PARID={ ls_verify-parid };PARVA={ ls_verify-parva };PARTEXT={ ls_verify-partext }| ).
+        ENDLOOP.
+
+        out->write( |MODE=SET; USER={ lc_user }; RESULT={ lv_result }; SUBRC={ lv_put_subrc }; BEFORE_COUNT={ lines( lt_before ) }; AFTER_COUNT={ lines( lt_after ) }| ).
+      CATCH cx_root INTO DATA(lx_root).
+        lv_exception = lx_root->get_text( ).
+        out->write( |MODE=SET; USER={ lc_user }; RESULT=EXCEPTION; TEXT={ lv_exception }| ).
+    ENDTRY.
+  ENDMETHOD.
+ENDCLASS.`;
+  }
+
+  private buildUserParameterIdTableLiteral(parameterIds: string[]): string {
+    if (parameterIds.length === 0) {
+      return "#( )";
+    }
+
+    const entries = parameterIds
+      .map((parameterId) => `( ${this.toAbapStringLiteral(normalizeObjectName(parameterId))} )`)
+      .join(" ");
+    return `#( ${entries} )`;
+  }
+
+  private buildUserParameterValueTableLiteral(parameters: AdtSetUserParametersInput["parameters"]): string {
+    const entries = parameters.map((parameter) => {
+      const parameterId = normalizeObjectName(parameter.parameterId);
+      const parameterValue = parameter.value ?? "";
+      const parameterText = parameter.text ?? "";
+      return `( parid = ${this.toAbapStringLiteral(parameterId)} parva = ${this.toAbapStringLiteral(parameterValue)} partext = ${this.toAbapStringLiteral(parameterText)} )`;
+    }).join(" ");
+
+    return `#( ${entries} )`;
+  }
+
   private ensureTransactionHelperCreateSuccess(
     transactionCode: string,
     responseBody: string,
@@ -2343,6 +2788,33 @@ ENDCLASS.`;
 
     throw new Error(
       `Delete transaction helper failed for ${normalizedCode}.\nCategory: delete_failed\nSummary: RESULT=${result ?? "UNKNOWN"} SUBRC=${subrc ?? "?"} EXISTS=${exists ?? "?"}\nRaw response:\n${trimmedBody}`,
+    );
+  }
+
+  private ensureUserParameterHelperSuccess(
+    mode: "GET" | "SET",
+    userName: string,
+    responseBody: string,
+  ): void {
+    const normalizedUser = normalizeObjectName(userName);
+    const trimmedBody = trimBody(responseBody, 4000);
+    const exceptionText = responseBody.match(/RESULT=EXCEPTION;\s*TEXT=(.+)$/im)?.[1]?.trim();
+    if (exceptionText) {
+      throw new Error(
+        `${mode} user parameters helper failed for ${normalizedUser}.\nSummary: ${exceptionText}\nRaw response:\n${trimmedBody}`,
+      );
+    }
+
+    const result = responseBody.match(/RESULT=([A-Z_0-9]+)/i)?.[1]?.toUpperCase();
+    const subrc = responseBody.match(/SUBRC=(\d+)/i)?.[1];
+
+    if (result === "OK" && subrc === "0") {
+      return;
+    }
+
+    const category = result === "USER_NAME_NOT_EXIST" ? "user_not_found" : "helper_failed";
+    throw new Error(
+      `${mode} user parameters helper failed for ${normalizedUser}.\nCategory: ${category}\nSummary: RESULT=${result ?? "UNKNOWN"} SUBRC=${subrc ?? "?"}\nRaw response:\n${trimmedBody}`,
     );
   }
 
@@ -2651,6 +3123,7 @@ ENDLOOP.`;
     response: AdtResponseSummary,
     objectType: SupportedObjectType,
     objectName: string,
+    containerName?: string,
   ): Promise<boolean> {
     if (response.status >= 200 && response.status < 300) {
       return false;
@@ -2669,6 +3142,7 @@ ENDLOOP.`;
       const existingObject = await this.readObject({
         objectType,
         objectName,
+        containerName,
       });
       return existingObject.status >= 200 && existingObject.status < 300;
     } catch {

@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { readdir, readFile } from "node:fs/promises";
+import path from "node:path";
 import { z } from "zod";
 import { AdtClient } from "./adt-client.js";
 import { assertAllowedObjectType, assertAllowedPackage } from "./authorization.js";
@@ -10,6 +12,9 @@ import {
   parseRuntimeOutput,
   parseTransportRequestDetail,
   parseTransportRequestList,
+  searchLocalDocument,
+  tokenizeSearchQuery,
+  parseUserParameterHelperOutput,
   trimBody,
 } from "./utils.js";
 
@@ -21,7 +26,25 @@ const server = new McpServer({
   version: "1.3.0",
 });
 
+const structuredContentEnabled = process.env.SAP_ADT_MCP_RESPONSE_NO_STRUCTURED_CONTENT !== "true";
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function textResult(text: string) {
+  let structuredContent: Record<string, unknown> | undefined;
+  if (structuredContentEnabled) {
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      if (isPlainObject(parsed)) {
+        structuredContent = parsed;
+      }
+    } catch {
+      // Plain text responses stay text-only.
+    }
+  }
+
   return {
     content: [
       {
@@ -29,10 +52,24 @@ function textResult(text: string) {
         text,
       },
     ],
+    ...(structuredContent ? { structuredContent } : {}),
   };
 }
 
 type TransportClassification = "keep" | "release" | "delete" | "review";
+
+const localDocsRoot = process.cwd();
+
+async function listSearchableDocFiles(): Promise<string[]> {
+  const entries = await readdir(localDocsRoot, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => name.endsWith(".md"))
+    .filter((name) => name !== "readme_sv.md")
+    .filter((name) => !name.toLowerCase().startsWith("todo_"))
+    .sort((left, right) => left.localeCompare(right));
+}
 
 function classifyTransportRequest(
   request: Record<string, string> | undefined,
@@ -68,6 +105,73 @@ function classifyTransportRequest(
 }
 
 server.tool(
+  "sap_adt_search_docs",
+  "Search the local SAP_ADT_MCP Markdown documentation and examples for matching keywords, examples and known limitations.",
+  {
+    query: z.string(),
+    maxResults: z.number().int().min(1).max(20).optional(),
+    fileFilter: z.string().optional(),
+  },
+  async ({ query, maxResults, fileFilter }) => {
+    const terms = tokenizeSearchQuery(query);
+    const files = await listSearchableDocFiles();
+    const filteredFiles = fileFilter
+      ? files.filter((fileName) => fileName.toLowerCase().includes(fileFilter.toLowerCase()))
+      : files;
+
+    const results: Array<{
+      fileName: string;
+      filePath: string;
+      title: string;
+      score: number;
+      snippets: string[];
+    }> = [];
+
+    for (const fileName of filteredFiles) {
+      const filePath = path.join(localDocsRoot, fileName);
+      const content = await readFile(filePath, "utf8");
+      const titleMatch = content.match(/^#\s+(.+)$/m);
+      const title = titleMatch?.[1] ?? fileName;
+      const match = searchLocalDocument(content, query);
+      if (!match) {
+        continue;
+      }
+
+      const titleBonus = terms.reduce((sum, term) => (
+        title.toLowerCase().includes(term) ? sum + 6 : sum
+      ), 0);
+
+      results.push({
+        fileName,
+        filePath,
+        title,
+        score: match.score + titleBonus,
+        snippets: match.snippets,
+      });
+    }
+
+    results.sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      return left.fileName.localeCompare(right.fileName);
+    });
+
+    return textResult(JSON.stringify(
+      {
+        query,
+        terms,
+        searchedFileCount: filteredFiles.length,
+        resultCount: Math.min(results.length, maxResults ?? 5),
+        results: results.slice(0, maxResults ?? 5),
+      },
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
   "sap_adt_discover",
   "Verify ADT connectivity and return raw discovery information from the configured SAP system.",
   {},
@@ -81,18 +185,20 @@ server.tool(
   "sap_adt_read_object",
   "Read an ABAP repository object via SAP ADT. Supply either a direct ADT uri or objectType+objectName.",
   {
-    objectType: z.enum(["interface", "class", "program", "ddls", "dcls", "ddlx"]),
+    objectType: z.enum(["functiongroup", "functionmodule", "interface", "class", "program", "ddls", "bdef", "dcls", "ddlx"]),
     objectName: z.string().optional(),
+    containerName: z.string().optional(),
     uri: z.string().optional(),
     packageName: z.string().optional(),
   },
-  async ({ objectType, objectName, uri, packageName }) => {
+  async ({ objectType, objectName, containerName, uri, packageName }) => {
     assertAllowedObjectType(config, objectType);
     assertAllowedPackage(config, packageName);
 
     const response = await adtClient.readObject({
       objectType: objectType as SupportedObjectType,
       objectName,
+      containerName,
       uri,
     });
 
@@ -413,21 +519,23 @@ server.tool(
   "sap_adt_write_object",
   "Write ABAP repository content via SAP ADT using a stateful session, lock, corrNr handling and optional activation.",
   {
-    objectType: z.enum(["interface", "class", "program", "ddls", "dcls", "ddlx"]),
+    objectType: z.enum(["functiongroup", "functionmodule", "interface", "class", "program", "ddls", "bdef", "dcls", "ddlx"]),
     objectName: z.string().optional(),
+    containerName: z.string().optional(),
     uri: z.string().optional(),
     packageName: z.string().optional(),
     content: z.string(),
     transportRequest: z.string().optional(),
     activateAfterWrite: z.boolean().optional(),
   },
-  async ({ objectType, objectName, uri, packageName, content, transportRequest, activateAfterWrite }) => {
+  async ({ objectType, objectName, containerName, uri, packageName, content, transportRequest, activateAfterWrite }) => {
     assertAllowedObjectType(config, objectType);
     assertAllowedPackage(config, packageName);
 
     const response = await adtClient.writeObject({
       objectType: objectType as SupportedObjectType,
       objectName,
+      containerName,
       uri,
       content,
       transportRequest,
@@ -449,15 +557,16 @@ server.tool(
   "sap_adt_activate_object",
   "Activate an ABAP repository object via SAP ADT. Supply either objectType+objectName or a direct ADT uri. Source uris are normalized automatically.",
   {
-    objectType: z.enum(["interface", "class", "program", "ddls", "dcls", "ddlx"]).optional(),
+    objectType: z.enum(["functiongroup", "functionmodule", "interface", "class", "program", "ddls", "bdef", "dcls", "ddlx"]).optional(),
     objectName: z.string().optional(),
+    containerName: z.string().optional(),
     uri: z.string().optional(),
     name: z.string().optional(),
     type: z.string().optional(),
     parentUri: z.string().optional(),
     packageName: z.string().optional(),
   },
-  async ({ objectType, objectName, uri, name, type, parentUri, packageName }) => {
+  async ({ objectType, objectName, containerName, uri, name, type, parentUri, packageName }) => {
     if (objectType) {
       assertAllowedObjectType(config, objectType);
     }
@@ -466,6 +575,7 @@ server.tool(
     const response = await adtClient.activateObject({
       objectType: objectType as SupportedObjectType | undefined,
       objectName,
+      containerName,
       uri,
       name,
       type,
@@ -489,8 +599,9 @@ server.tool(
     orderProfile: z.enum(["auto", "consumerProgram", "consumptionView"]).optional(),
     objects: z.array(
       z.object({
-        objectType: z.enum(["interface", "class", "program", "ddls", "dcls", "ddlx"]),
+        objectType: z.enum(["functiongroup", "functionmodule", "interface", "class", "program", "ddls", "bdef", "dcls", "ddlx"]),
         objectName: z.string().optional(),
+        containerName: z.string().optional(),
         uri: z.string().optional(),
         packageName: z.string().optional(),
       }),
@@ -507,6 +618,7 @@ server.tool(
       objects: objects.map((item) => ({
         objectType: item.objectType as SupportedObjectType,
         objectName: item.objectName,
+        containerName: item.containerName,
         uri: item.uri,
         packageName: item.packageName,
       })),
@@ -537,8 +649,9 @@ server.tool(
     stopOnError: z.boolean().optional(),
     objects: z.array(
       z.object({
-        objectType: z.enum(["interface", "class", "program", "ddls", "dcls", "ddlx"]),
+        objectType: z.enum(["functiongroup", "functionmodule", "interface", "class", "program", "ddls", "bdef", "dcls", "ddlx"]),
         objectName: z.string().optional(),
+        containerName: z.string().optional(),
         uri: z.string().optional(),
         packageName: z.string().optional(),
       }),
@@ -556,6 +669,7 @@ server.tool(
       objects: objects.map((item) => ({
         objectType: item.objectType as SupportedObjectType,
         objectName: item.objectName,
+        containerName: item.containerName,
         uri: item.uri,
         packageName: item.packageName,
       })),
@@ -606,9 +720,12 @@ server.tool(
   {
     objectType: z.enum([
       "interface",
+      "functiongroup",
+      "functionmodule",
       "class",
       "program",
       "ddls",
+      "bdef",
       "dcls",
       "ddlx",
       "package",
@@ -619,16 +736,18 @@ server.tool(
       "tabletype",
     ]),
     objectName: z.string().optional(),
+    containerName: z.string().optional(),
     uri: z.string().optional(),
     packageName: z.string().optional(),
     transportRequest: z.string().optional(),
   },
-  async ({ objectType, objectName, uri, packageName, transportRequest }) => {
+  async ({ objectType, objectName, containerName, uri, packageName, transportRequest }) => {
     assertAllowedPackage(config, packageName);
 
     const response = await adtClient.deleteObject({
       objectType: objectType as DeletableObjectType,
       objectName,
+      containerName,
       uri,
       transportRequest,
     });
@@ -1099,6 +1218,70 @@ server.tool(
 );
 
 server.tool(
+  "sap_adt_create_function_group",
+  "Create an ABAP function group shell via SAP ADT.",
+  {
+    groupName: z.string(),
+    description: z.string(),
+    packageName: z.string(),
+    masterSystem: z.string().optional(),
+    transportRequest: z.string().optional(),
+  },
+  async ({ groupName, description, packageName, masterSystem, transportRequest }) => {
+    assertAllowedPackage(config, packageName);
+
+    const response = await adtClient.createFunctionGroup({
+      groupName,
+      description,
+      packageName,
+      masterSystem: masterSystem ?? config.defaultMasterSystem,
+      transportRequest,
+    });
+
+    return textResult(JSON.stringify(
+      {
+        ...response,
+        body: trimBody(response.body),
+      },
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
+  "sap_adt_create_function_module",
+  "Create an ABAP function module shell inside an existing function group via SAP ADT.",
+  {
+    groupName: z.string(),
+    functionModuleName: z.string(),
+    description: z.string(),
+    packageName: z.string(),
+    transportRequest: z.string().optional(),
+  },
+  async ({ groupName, functionModuleName, description, packageName, transportRequest }) => {
+    assertAllowedPackage(config, packageName);
+
+    const response = await adtClient.createFunctionModule({
+      groupName,
+      functionModuleName,
+      description,
+      packageName,
+      transportRequest,
+    });
+
+    return textResult(JSON.stringify(
+      {
+        ...response,
+        body: trimBody(response.body),
+      },
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
   "sap_adt_create_transaction",
   "Create a classic report transaction code through a verified helper-class flow. Current verified scope is report transactions only.",
   {
@@ -1189,6 +1372,123 @@ server.tool(
         headers: response.headers,
         body: trimBody(response.body),
       })),
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
+  "sap_adt_get_user_parameters",
+  "Read persistent SAP user parameters through a verified helper-class flow around SUSR_USER_PARAMETERS_GET. Current verified scope is SU3-style user parameters, not transient SET PARAMETER ID session memory.",
+  {
+    helperPackageName: z.string(),
+    userName: z.string().optional(),
+    parameterIds: z.array(z.string()).optional(),
+    withText: z.boolean().optional(),
+    masterSystem: z.string().optional(),
+    transportRequest: z.string().optional(),
+    helperClassName: z.string().optional(),
+    deleteHelperAfterRun: z.boolean().optional(),
+  },
+  async ({
+    helperPackageName,
+    userName,
+    parameterIds,
+    withText,
+    masterSystem,
+    transportRequest,
+    helperClassName,
+    deleteHelperAfterRun,
+  }) => {
+    assertAllowedPackage(config, helperPackageName);
+
+    const responses = await adtClient.getUserParameters({
+      helperPackageName,
+      userName,
+      parameterIds,
+      withText,
+      masterSystem,
+      transportRequest,
+      helperClassName,
+      deleteHelperAfterRun,
+    });
+
+    const runResponseIndex = (deleteHelperAfterRun ?? true) ? responses.length - 2 : responses.length - 1;
+    const parsedResult = runResponseIndex >= 0
+      ? parseUserParameterHelperOutput(responses[runResponseIndex].body)
+      : { parameters: [] };
+
+    return textResult(JSON.stringify(
+      {
+        parsedResult,
+        steps: responses.map((response, index) => ({
+          step: index + 1,
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+          body: trimBody(response.body),
+        })),
+      },
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
+  "sap_adt_set_user_parameters",
+  "Set or update persistent SAP user parameters through a verified helper-class flow around SUSR_USER_PARAMETERS_GET and SUSR_USER_PARAMETERS_PUT. The MCP reads the full parameter list, merges the requested entries and writes the full list back.",
+  {
+    helperPackageName: z.string(),
+    userName: z.string().optional(),
+    parameters: z.array(z.object({
+      parameterId: z.string(),
+      value: z.string(),
+      text: z.string().optional(),
+    })).min(1),
+    masterSystem: z.string().optional(),
+    transportRequest: z.string().optional(),
+    helperClassName: z.string().optional(),
+    deleteHelperAfterRun: z.boolean().optional(),
+  },
+  async ({
+    helperPackageName,
+    userName,
+    parameters,
+    masterSystem,
+    transportRequest,
+    helperClassName,
+    deleteHelperAfterRun,
+  }) => {
+    assertAllowedPackage(config, helperPackageName);
+
+    const responses = await adtClient.setUserParameters({
+      helperPackageName,
+      userName,
+      parameters,
+      masterSystem,
+      transportRequest,
+      helperClassName,
+      deleteHelperAfterRun,
+    });
+
+    const runResponseIndex = (deleteHelperAfterRun ?? true) ? responses.length - 2 : responses.length - 1;
+    const parsedResult = runResponseIndex >= 0
+      ? parseUserParameterHelperOutput(responses[runResponseIndex].body)
+      : { parameters: [] };
+
+    return textResult(JSON.stringify(
+      {
+        parsedResult,
+        steps: responses.map((response, index) => ({
+          step: index + 1,
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+          body: trimBody(response.body),
+        })),
+      },
       null,
       2,
     ));
@@ -1308,6 +1608,38 @@ server.tool(
 
     const response = await adtClient.createDdls({
       ddlName,
+      description,
+      packageName,
+      masterSystem: masterSystem ?? config.defaultMasterSystem,
+      transportRequest,
+    });
+
+    return textResult(JSON.stringify(
+      {
+        ...response,
+        body: trimBody(response.body),
+      },
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
+  "sap_adt_create_bdef",
+  "Create a RAP behavior definition shell via SAP ADT. In this Docker-verified scope, create and source write are verified; generic ADT activation remains environment-sensitive.",
+  {
+    bdefName: z.string(),
+    description: z.string(),
+    packageName: z.string(),
+    masterSystem: z.string().optional(),
+    transportRequest: z.string().optional(),
+  },
+  async ({ bdefName, description, packageName, masterSystem, transportRequest }) => {
+    assertAllowedPackage(config, packageName);
+
+    const response = await adtClient.createBdef({
+      bdefName,
       description,
       packageName,
       masterSystem: masterSystem ?? config.defaultMasterSystem,

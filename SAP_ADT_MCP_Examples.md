@@ -4,6 +4,29 @@
 
 This document gives short, copy-friendly examples for the MCP tools that have proven most useful in external client workflows.
 
+## `sap_adt_search_docs`
+
+Use when you want to find verified examples, known limitations or implementation notes in this repository's own Markdown documentation.
+
+Example:
+
+```json
+{
+  "query": "ABAP Unit empty payload classrun verification",
+  "maxResults": 5
+}
+```
+
+Optional narrowing:
+
+```json
+{
+  "query": "transport release E_TRKORR",
+  "fileFilter": "Transport",
+  "maxResults": 3
+}
+```
+
 ## `sap_adt_activate_object_set`
 
 Use when you already know the affected object list and want one deterministic activation call.
@@ -64,6 +87,117 @@ Note:
 
 - delete uses a temporary helper class
 - the helper package is explicit so the client controls where the temporary class is created
+
+## `sap_adt_get_user_parameters`
+
+Use to read persistent user parameters through the verified SU3-style helper flow.
+
+Example:
+
+```json
+{
+  "helperPackageName": "Z_DEV_KODEXPORT",
+  "userName": "CODEX",
+  "parameterIds": ["/AIF/SKIP"],
+  "withText": true,
+  "transportRequest": "A4HK900315"
+}
+```
+
+Current note:
+
+- verified scope is persistent user parameters via `SUSR_USER_PARAMETERS_GET`
+- this is not the same as transient in-session `SET PARAMETER ID` memory
+
+## `sap_adt_set_user_parameters`
+
+Use to merge one or more persistent user-parameter values into the current parameter list and write the full list back safely.
+
+Example:
+
+```json
+{
+  "helperPackageName": "Z_DEV_KODEXPORT",
+  "userName": "CODEX",
+  "parameters": [
+    {
+      "parameterId": "/AIF/SKIP",
+      "value": "MCP"
+    }
+  ],
+  "transportRequest": "A4HK900315"
+}
+```
+
+Current note:
+
+- the verified update path reads the full parameter list first, merges the requested entries and then calls `SUSR_USER_PARAMETERS_PUT`
+
+## `sap_adt_create_function_group`
+
+Use to create a classic ABAP function group shell.
+
+Example:
+
+```json
+{
+  "groupName": "Z_MCP_FG_DEMO",
+  "description": "MCP function group demo",
+  "packageName": "Z_DEV_KODEXPORT",
+  "transportRequest": "A4HK900315"
+}
+```
+
+## `sap_adt_create_function_module`
+
+Use to create a function module shell inside an existing function group.
+
+Example:
+
+```json
+{
+  "groupName": "Z_MCP_FG_DEMO",
+  "functionModuleName": "Z_MCP_FM_DEMO",
+  "description": "MCP function module demo",
+  "packageName": "Z_DEV_KODEXPORT",
+  "transportRequest": "A4HK900315"
+}
+```
+
+Typical follow-up:
+
+- write the module source through `sap_adt_write_object`
+- set:
+  - `objectType: "functionmodule"`
+  - `objectName: "Z_MCP_FM_DEMO"`
+  - `containerName: "Z_MCP_FG_DEMO"`
+
+## `sap_adt_create_bdef`
+
+Use for a RAP behavior-definition shell when you already know the target name and package.
+
+Example:
+
+```json
+{
+  "bdefName": "ZI_MCP_BEHAVIOR_DEMO",
+  "description": "MCP behavior definition demo",
+  "packageName": "Z_DEV_KODEXPORT",
+  "transportRequest": "A4HK900315"
+}
+```
+
+Typical follow-up:
+
+- write the BDEF source through `sap_adt_write_object`
+- set:
+  - `objectType: "bdef"`
+  - `objectName: "ZI_MCP_BEHAVIOR_DEMO"`
+
+Current note:
+
+- create, read, source write and delete are verified
+- generic ADT activation is still environment-sensitive for BDEF in the Docker trial
 
 ## `sap_adt_run_class`
 

@@ -23,7 +23,8 @@ The MCP now covers the main repository-centric SAP ADT workflows needed by an AI
 - transport request creation, listing, inspection, checks, release and deletion
 - package creation
 - scaffold creation from templates
-- creation of interface, report transaction, program, class, DDLS, DCLS and DDLX
+- creation of function group, function module, interface, report transaction, program, class, DDLS, DCLS and DDLX
+- creation of RAP behavior definitions (BDEF) with verified create, source write, read and delete flows
 - creation of DDIC objects:
   - data elements
   - domains
@@ -31,6 +32,8 @@ The MCP now covers the main repository-centric SAP ADT workflows needed by an AI
   - transparent tables
   - structures
   - table types
+- persistent user-parameter read/update through verified helper flows
+- local Markdown documentation and example search
 - search help creation through the verified helper-program flow
 - ABAP Unit metadata lookup
 - ABAP Unit execution for one class or executable program
@@ -73,12 +76,36 @@ The following behavior is verified against SAP and reflected in the implementati
   - create on `/oo/interfaces`
   - source read/write on `/oo/interfaces/{name}/source/main`
   - activation as `INTF/OI`
+- classic function-group support is now verified through native ADT endpoints:
+  - function groups on `/functions/groups/{group}`
+  - function modules on `/functions/groups/{group}/fmodules/{fmodule}`
+  - source read/write on `.../source/main`
+  - activation types:
+    - `FUGR/F`
+    - `FUGR/FF`
+- RAP behavior-definition support is now partially verified through native ADT endpoints:
+  - create on `/bo/behaviordefinitions`
+  - source read/write on `/bo/behaviordefinitions/{name}/source/main`
+  - delete via source lock URI
+  - activation type mapping:
+    - `BDEF/BDO`
+  - current Docker limitation:
+    - generic ADT activation for BDEF returned `checkExecuted="false"` and `activationExecuted="false"` even for valid objects
+    - the MCP therefore exposes verified create/read/write/delete support, while BDEF activation remains environment-sensitive
 - report transaction support is now verified through a helper-class flow around classic SAP function modules:
   - create via `RPY_TRANSACTION_INSERT`
   - delete via `RPY_TRANSACTION_DELETE`
   - current verified scope: report transactions
   - delete requires an explicit helper package for the temporary helper class
   - package registration can be verified through `TADIR` with `PGMID = 'R3TR'` and `OBJECT = 'TRAN'`
+- persistent user-parameter support is now verified through helper-class flows around classic SAP function modules:
+  - read via `SUSR_USER_PARAMETERS_GET`
+  - update via `SUSR_USER_PARAMETERS_GET` + `SUSR_USER_PARAMETERS_PUT`
+  - current verified scope:
+    - SU3-style persistent user parameters
+    - same-user verification for the MCP runtime user
+  - explicit non-scope:
+    - transient `SET PARAMETER ID` / `GET PARAMETER ID` session memory behavior
 - `sap_adt_activate_object` now normalizes common caller inputs internally:
   - `interface`
   - `objectType + objectName`
@@ -96,6 +123,10 @@ The following behavior is verified against SAP and reflected in the implementati
   - `parsedOutput`
   - table-like summaries for plain-text list output when feasible
   - key/value summaries for classrun-style output when feasible
+- the MCP now also exposes one local documentation helper:
+  - `sap_adt_search_docs`
+  - it searches the repository's own verified Markdown documents and examples
+  - this was added as a lightweight, dependency-free response to ideas seen in other SAP-adjacent MCP servers
 - activation diagnostics now fetch the linked activation result and return:
   - a short normalized failure category
   - a compact summary with the first relevant SAP error
@@ -171,6 +202,7 @@ You normally only need to adjust:
 - `SAP_ADT_USERNAME`
 - `SAP_ADT_PASSWORD`
 - `SAP_ADT_VERIFY_TLS`
+- `SAP_ADT_MCP_RESPONSE_NO_STRUCTURED_CONTENT` if your MCP client needs text-only responses
 - `SAP_ADT_ALLOWED_PACKAGES`
 - `SAP_ADT_ALLOWED_OBJECT_TYPES`
 - `SAP_ADT_DEFAULT_TRANSPORT_REQUEST` if you intentionally want a fallback request
