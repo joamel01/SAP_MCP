@@ -45,6 +45,11 @@ This version incorporates the most important lessons from the latest verificatio
 - ABAP Unit payload structure is confirmed, and the MCP now parses structured result summaries when the payload supports it.
 - The current SAP container still returned empty `aunit:runResult` data for the custom demo objects, so rich live parsing could only be verified partially in this environment.
 - External verification through Gemini CLI confirmed that the MCP is usable from a real third-party MCP client, not only through local direct scripts.
+- A later external Gemini verification round on `1.3.0` confirmed a full runtime chain through `sap_adt_run_class`:
+  - AMDP table function returned carrier data
+  - CDS consumer view joined flight data with the table function result
+  - the service class consumed the CDS layer successfully
+  - the resulting classrun output proved that the end-to-end backend chain was not only activatable but also executable
 - A full SAPUI5 backend preparation flow was verified through the MCP:
   - CDS basic view
   - CDS consumption view
@@ -70,6 +75,7 @@ The following behavior is verified against SAP and reflected in the implementati
 - `sap_adt_activate_object_set` now supports deterministic activation of a small mixed object list with:
   - `stopOnError=true` for first-failure stop behavior
   - `stopOnError=false` for full per-object result collection
+- external Gemini feedback confirmed that this mass-activation flow is the biggest practical ergonomics improvement in `1.3.0`
 - activation diagnostics now fetch the linked activation result and return:
   - a short normalized failure category
   - a compact summary with the first relevant SAP error
@@ -106,6 +112,7 @@ The following behavior is verified against SAP and reflected in the implementati
 - the `ZCL_FLIGHT_CONSUMER` verification case confirmed that this richer activation path now exposes real repository errors, such as:
   - unknown ABAP type names in generated class source
   - partially generated consumer programs that need follow-up content fixes
+- the later Gemini verification also confirmed that `sap_adt_run_class` is an important secondary verification path when ABAP Unit REST results stay empty in a given SAP environment
 - dependency-helper verification also confirmed one activation edge case:
   - `activationExecuted="false"` without real errors can still be acceptable when the object is not left inactive afterwards
 

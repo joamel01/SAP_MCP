@@ -194,6 +194,15 @@ Gemini's qualitative feedback confirmed that:
 - dependency errors are understandable enough for self-correction
 - `activateAfterWrite` is particularly effective
 
+A later Gemini `1.3.0` round added stronger verification:
+
+- `sap_adt_activate_object_set` was identified as the biggest workflow improvement because it removed several manual activation turns
+- a full CDS -> AMDP -> service -> classrun chain executed successfully
+- `sap_adt_run_class` returned real business data from the chain, including carrier data coming from the table-function-backed logic
+- clearer object-already-exists errors were good enough for direct autonomous recovery by the client
+- URI normalization improvements reduced friction in manual and semi-manual activation calls
+- ABAP Unit REST output remained empty in that environment as well, which reinforced the importance of `sap_adt_run_class` as a secondary verification path
+
 ## 9. ABAP Unit
 
 Verified:
