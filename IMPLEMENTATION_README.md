@@ -1,6 +1,6 @@
 # SAP ADT MCP – Implementation
 
-This is the working `1.2.0` implementation of an MCP server for SAP ADT.
+This document describes the `1.3.0` working baseline for the SAP ADT MCP.
 
 The implementation was practically verified against `ABAP Cloud Developer Trial 2023 for Docker`.
 
@@ -17,9 +17,9 @@ The implementation was practically verified against `ABAP Cloud Developer Trial 
 - `.env.example`
   reusable template for new SAP systems
 
-## What Is New In 1.2.0
+## What Is New In 1.3.0
 
-Version `1.2.0` consolidates the newest findings from both ABAP Unit verification and the SAPUI5 backend scenario.
+Version `1.3.0` consolidates the newest findings from activation hardening, ABAP Unit verification and the SAPUI5 backend scenario.
 
 New or newly documented in this version:
 
@@ -47,9 +47,59 @@ New or newly documented in this version:
 Current limitation:
 
 - ABAP Unit endpoints and payloads are verified
-- the current container still returned empty `runResult` XML for the first demo objects
-- the MCP therefore returns raw XML plus simple counters rather than over-claiming structured test semantics
-- the next improvement should be verification against an ABAP Unit object that returns a populated result payload
+- the MCP now parses ABAP Unit payloads into a compact structure when the XML actually contains test data
+- current parser support covers:
+  - empty ADT payloads
+  - ADT `aunit:runResult` payloads with `testClass`, `testMethod` and `alert`
+  - JUnit-style payloads with `testsuites`, `testsuite`, `testcase`, `failure` and `error`
+- the current container still returned empty `aunit:runResult` XML for the custom demo objects
+- therefore the richer parser is fully implemented, but only partially verified against live non-empty SAP payloads in this environment
+- the next improvement should still be a stable SAP-side reference object that returns a populated result payload end-to-end
+
+Point `4` is now covered by a documented verification bundle:
+
+- script:
+  - `src/verify-abap-unit.ts`
+- npm entry:
+  - `npm run verify:abapunit`
+- reference parser sample:
+  - `references/abapunit-junit-sample.xml`
+- usage guide:
+  - `SAP_ADT_MCP_ABAP_Unit_Verification.md`
+
+Also verified in `1.3.0`:
+
+- `sap_adt_activate_object` no longer requires callers to provide only a pre-normalized definition URI
+- the tool now accepts:
+  - `objectType + objectName`
+  - direct definition URI
+  - `.../source/main` URI
+- the client normalizes these inputs internally before starting the ADT activation run
+- activation failure handling is now richer:
+  - the client follows the activation result link returned by ADT
+  - it parses SAP checklist messages
+  - it classifies the failure into a short normalized category
+  - it returns both a compact summary and the raw XML payloads needed for troubleshooting
+- this was verified with two concrete cases:
+  - `ZCL_FLIGHT_CONSUMER`, where activation failed because `FLTP` was not accepted in the generated ABAP class source
+  - a temporary syntax-error class, where the MCP now surfaced the real SAP error instead of only reporting that activation did not complete
+- one dependency-aware activation helper now exists:
+  - `sap_adt_activate_dependency_chain`
+  - supported profiles:
+    - `auto`
+    - `consumerProgram`
+    - `consumptionView`
+- this helper was verified against a real CDS/table-function/class/program chain in SAP with intentionally scrambled input order
+- the same work also hardened activation semantics:
+  - `activationExecuted="false"` is no longer treated as fatal by itself
+  - the MCP now also checks whether the object remains inactive and whether real `E/A/X` messages exist
+- one small-set mass activation tool now exists:
+  - `sap_adt_activate_object_set`
+- it reuses the same deterministic ordering model but adds:
+  - `stopOnError=true` for first-failure stop behavior
+  - `stopOnError=false` for full per-object result collection
+  - aggregate counts for requested, attempted, successful and failed activations
+  - explicit reporting of where execution stopped when stop-on-error is enabled
 
 ## What Was New In 1.1.0
 
@@ -151,6 +201,8 @@ The same iteration also verified that some DDIC objects behave as text-source ob
 - `sap_adt_run_class`
 - `sap_adt_get_abap_unit_metadata`
 - `sap_adt_run_abap_unit`
+- `sap_adt_activate_dependency_chain`
+- `sap_adt_activate_object_set`
 - `sap_adt_write_object`
 - `sap_adt_activate_object`
 - `sap_adt_get_activation_log`

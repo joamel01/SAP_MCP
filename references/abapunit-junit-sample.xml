@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="2" asserts="2" failures="1" errors="0" skipped="0">
+  <testsuite name="ZCL_DEMO_TEST" tests="2" failures="1" errors="0" skipped="0">
+    <testcase name="passes" time="0.001"/>
+    <testcase name="fails" time="0.002">
+      <failure type="CX_TEST_FAILURE" message="Expected 2 but got 1">Assertion failed</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

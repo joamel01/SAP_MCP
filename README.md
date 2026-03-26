@@ -6,7 +6,7 @@ The project is now maintained in English. The earlier Swedish overview is preser
 
 ## Status
 
-Version `1.2.0` is the current practical baseline.
+Version `1.3.0` is the current working baseline.
 
 The practical verification work in this repository was carried out against `ABAP Cloud Developer Trial 2023 for Docker`.
 
@@ -17,6 +17,8 @@ The MCP now covers the main repository-centric SAP ADT workflows needed by an AI
 - write object source with stateful session handling
 - lock and unlock flows
 - activation and activation log lookup
+- dependency-aware activation helper for small known object chains
+- small-set mass activation with optional stop-on-error behavior
 - object deletion
 - transport request creation, listing, inspection, checks, release and deletion
 - package creation
@@ -35,12 +37,13 @@ The MCP now covers the main repository-centric SAP ADT workflows needed by an AI
 - ABAP `programrun`
 - ABAP `classrun`
 
-## Newly Consolidated Findings In 1.2.0
+## Newly Consolidated Findings In 1.3.0
 
 This version incorporates the most important lessons from the latest verification rounds:
 
 - ABAP Unit metadata and execution endpoints are verified and exposed as MCP tools.
-- ABAP Unit payload structure is confirmed, but the current SAP container still returned empty `runResult` data for the initial demo objects. The MCP therefore returns raw XML plus simple counters instead of pretending to provide full semantic parsing.
+- ABAP Unit payload structure is confirmed, and the MCP now parses structured result summaries when the payload supports it.
+- The current SAP container still returned empty `aunit:runResult` data for the custom demo objects, so rich live parsing could only be verified partially in this environment.
 - External verification through Gemini CLI confirmed that the MCP is usable from a real third-party MCP client, not only through local direct scripts.
 - A full SAPUI5 backend preparation flow was verified through the MCP:
   - CDS basic view
@@ -57,6 +60,21 @@ This version incorporates the most important lessons from the latest verificatio
 The following behavior is verified against SAP and reflected in the implementation:
 
 - activation requires full ADT object URIs and correct `adtcore:type`
+- `sap_adt_activate_object` now normalizes common caller inputs internally:
+  - `objectType + objectName`
+  - direct definition URI
+  - `.../source/main` URI
+- `sap_adt_activate_dependency_chain` now supports deterministic helper ordering for:
+  - mixed DDLS + class + program stacks
+  - DDLS + DCL + DDLX stacks
+- `sap_adt_activate_object_set` now supports deterministic activation of a small mixed object list with:
+  - `stopOnError=true` for first-failure stop behavior
+  - `stopOnError=false` for full per-object result collection
+- activation diagnostics now fetch the linked activation result and return:
+  - a short normalized failure category
+  - a compact summary with the first relevant SAP error
+  - raw activation result XML
+  - raw activation run XML
 - DDIC metadata objects require stateful session handling for `PUT`
 - transported package creation often needs `corrNr` already in the initial create step
 - tables and structures are written through `.../source/main`
@@ -64,6 +82,12 @@ The following behavior is verified against SAP and reflected in the implementati
 - search help support is implemented through a verified ABAP helper-program flow
 - ABAP Unit metadata is exposed through `/abapunit/metadata`
 - ABAP Unit execution is exposed through `/abapunit/testruns`
+- `sap_adt_run_abap_unit` now returns:
+  - raw XML
+  - parsed result format (`empty`, `adt-aunit`, `junit`, `unknown`)
+  - structured test classes
+  - structured test methods
+  - failure messages when present
 - the verified ABAP Unit payload requires:
   - root element `aunit:runConfiguration`
   - `adtcore:objectSets`
@@ -79,6 +103,11 @@ The following behavior is verified against SAP and reflected in the implementati
   2. valid `.env` default if still modifiable
   3. automatic lookup if exactly one modifiable workbench request exists
   4. explicit error if several exist
+- the `ZCL_FLIGHT_CONSUMER` verification case confirmed that this richer activation path now exposes real repository errors, such as:
+  - unknown ABAP type names in generated class source
+  - partially generated consumer programs that need follow-up content fixes
+- dependency-helper verification also confirmed one activation edge case:
+  - `activationExecuted="false"` without real errors can still be acceptable when the object is not left inactive afterwards
 
 ## Main Documents
 
@@ -89,6 +118,9 @@ Historical filenames are preserved, but the document contents are now in English
 - [SAP_ADT_MCP_API_and_Phasing.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_API_and_Phasing.md)
 - [SAP_ADT_MCP_Risks_and_Security.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Risks_and_Security.md)
 - [SAP_ADT_MCP_Verified_Findings.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Verified_Findings.md)
+- [SAP_ADT_MCP_ABAP_Unit_Verification.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_ABAP_Unit_Verification.md)
+- [SAP_ADT_MCP_Dependency_Activation.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Dependency_Activation.md)
+- [SAP_ADT_MCP_Mass_Activation.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Mass_Activation.md)
 - [SAP_ADT_MCP_E2E_Test_20260325.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_E2E_Test_20260325.md)
 - [SAP_ADT_MCP_Gemini_Verification_20260325.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Gemini_Verification_20260325.md)
 - [SAP_ADT_MCP_Transport_Handling.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_Transport_Handling.md)
@@ -123,6 +155,15 @@ Basic flow:
    - [scripts/run-sap-adt-mcp.sh](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/scripts/run-sap-adt-mcp.sh)
 5. Register the server in Gemini CLI
    - example: [gemini-settings.example.json](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/gemini-settings.example.json)
+
+ABAP Unit verification bundle:
+
+- build:
+  - `npm run build`
+- run:
+  - `npm run verify:abapunit`
+- reference document:
+  - [SAP_ADT_MCP_ABAP_Unit_Verification.md](/mnt/c/users/joaki/ai/abap_codex/SAP_ADT_MCP/SAP_ADT_MCP_ABAP_Unit_Verification.md)
 
 ## Scope
 

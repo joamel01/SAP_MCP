@@ -23,6 +23,23 @@ The findings in this document were gathered primarily from verification runs aga
 - retry and session reset were needed for transient ADT failures such as:
   - `451 REASON_451`
   - `connection closed (no data)`
+- activation input handling is now verified in a more user-friendly form:
+  - program activation works with `objectType + objectName`
+  - DDLS activation works with `objectType + objectName`
+  - source URIs ending in `.../source/main` are normalized automatically before activation
+- activation diagnostics are now verified at a more useful external-client level:
+  - the MCP follows the activation result link returned by the background run
+  - it parses `chkl:properties`
+  - it extracts SAP activation messages from `<msg ...>`
+  - it returns both a normalized failure category and the raw XML details
+- verified failure examples:
+  - `ZCL_FLIGHT_CONSUMER` failed because `FLTP` was not accepted as an ABAP type in the generated class source
+  - temporary class `ZCL_MCP_ACTDIAG_T1` failed with:
+    - category `syntax_or_semantic_error`
+    - first relevant message `Type "DOES_NOT_EXIST" is unknown.`
+- one more activation hardening was verified:
+  - `activationExecuted="false"` is not always a real failure
+  - if no `E/A/X` messages exist and the object is not left in the inactive-object log, the MCP now treats that as a no-op success
 
 ## 3. DDIC Object Behavior
 
@@ -117,6 +134,45 @@ The complete CDS/AMDP chain was verified end-to-end with:
 - service class
 - executable program
 
+Dependency-aware activation is now also verified as a separate helper behavior:
+
+- helper tool:
+  - `sap_adt_activate_dependency_chain`
+- verified order profile:
+  - `consumerProgram`
+- verified SAP objects:
+  - `Z_I_FLIGHT_TABLEFUNC`
+  - `Z_I_FLIGHT_VIEW`
+  - `ZCL_FLIGHT_CONSUMER`
+  - `ZCL_FLIGHT_AMDP`
+  - `Z_FLIGHT_DEMO_REPORT`
+- the helper correctly reordered a scrambled caller input into:
+  1. DDLS
+  2. DDLS
+  3. class
+  4. class
+  5. program
+
+Small-set mass activation is now verified as a separate tool behavior:
+
+- tool:
+  - `sap_adt_activate_object_set`
+- supported modes:
+  - `stopOnError=true`
+  - `stopOnError=false`
+- verified behavior:
+  - deterministic execution order is preserved even when the caller sends a scrambled object list
+  - when `stopOnError=true`, the tool stops at the first failed activation and reports where it stopped
+  - when `stopOnError=false`, the tool continues and returns per-object success and failure results for the full set
+- verified SAP case:
+  - valid chain members:
+    - `Z_I_FLIGHT_TABLEFUNC`
+    - `Z_I_FLIGHT_VIEW`
+    - `ZCL_FLIGHT_CONSUMER`
+    - `Z_FLIGHT_DEMO_REPORT`
+  - intentional failure member:
+    - `ZCL_MCP_DOES_NOT_EXIST`
+
 ## 8. External Gemini Verification
 
 Gemini CLI successfully used the MCP to:
@@ -153,11 +209,20 @@ Verified:
   - `application/vnd.sap.adt.abapunit.testruns.config.v4+xml`
 - accept type:
   - `application/vnd.sap.adt.abapunit.testruns.result.v2+xml`
+- the MCP now parses ABAP Unit output into a structured summary when the payload contains test details
+- verified parser support:
+  - empty ADT payloads such as `<aunit:runResult .../>`
+  - JUnit-style payloads with `testsuites`, `testsuite`, `testcase`, `failure` and `error`
+  - ADT payloads are also handled structurally for `testClass`, `testMethod` and `alert` tags when present
 
 Current limitation:
 
-- the first verified demo objects in the container returned empty `runResult` payloads
-- therefore the MCP returns raw XML plus simple counters, not over-structured test semantics
+- the custom demo objects in the container still returned empty `runResult` payloads
+- therefore the richer parser is implemented and safe, but live verification of non-empty SAP-side result payloads is still incomplete in this environment
+- a repeatable verification bundle now exists anyway:
+  - live check against one reference object
+  - parser verification against `references/abapunit-junit-sample.xml`
+  - script entry point `npm run verify:abapunit`
 
 ## 10. SAPUI5 Backend Scenario
 

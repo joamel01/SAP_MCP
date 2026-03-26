@@ -13,6 +13,8 @@
 
 - `sap_adt_write_object`
 - `sap_adt_activate_object`
+- `sap_adt_activate_dependency_chain`
+- `sap_adt_activate_object_set`
 - `sap_adt_get_activation_log`
 - `sap_adt_delete_object`
 
@@ -116,14 +118,16 @@ This is deliberate. It is easier for MCP clients to reason over compact JSON tex
 - ABAP Unit metadata
 - ABAP Unit execution
 - backend provisioning scenario for a working SAPUI5 app
+- dependency-aware activation helper
+- small-set mass activation with stop-or-continue behavior
 
 ## Recommended Next Phase
 
 The next valuable phase would be:
 
-1. richer ABAP Unit result parsing
-2. stronger activation dependency orchestration
-3. optional higher-level generators for common ABAP/CDS solution bundles
+1. optional higher-level generators for common ABAP/CDS solution bundles
+2. more client-friendly program output capture
+3. broader live verification of non-empty ABAP Unit result payloads
 
 ## Out Of Scope For Now
 

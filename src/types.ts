@@ -54,7 +54,9 @@ export interface AdtLockResult {
 }
 
 export interface AdtActivationRequest {
-  uri: string;
+  objectType?: SupportedObjectType;
+  objectName?: string;
+  uri?: string;
   name?: string;
   type?: string;
   parentUri?: string;
@@ -248,6 +250,24 @@ export interface AdtRunAbapUnitInput {
   shortDuration?: boolean;
   mediumDuration?: boolean;
   longDuration?: boolean;
+}
+
+export interface AdtDependencyObjectInput {
+  objectType: SupportedObjectType;
+  objectName?: string;
+  uri?: string;
+  packageName?: string;
+}
+
+export interface AdtActivateDependencyChainInput {
+  orderProfile?: "auto" | "consumerProgram" | "consumptionView";
+  objects: AdtDependencyObjectInput[];
+}
+
+export interface AdtActivateObjectSetInput {
+  orderProfile?: "auto" | "consumerProgram" | "consumptionView";
+  stopOnError?: boolean;
+  objects: AdtDependencyObjectInput[];
 }
 
 export interface AdtDeleteObjectInput {

@@ -1,6 +1,8 @@
 import { Agent } from "undici";
 import type {
   AdtActivationRequest,
+  AdtActivateDependencyChainInput,
+  AdtActivateObjectSetInput,
   AdtCreateClassInput,
   AdtCreateDclsInput,
   AdtCreateDataElementInput,
@@ -24,6 +26,7 @@ import type {
   AdtCreateTableInput,
   AdtCreateTableTypeInput,
   AdtDeleteObjectInput,
+  AdtDependencyObjectInput,
   AdtRunAbapUnitInput,
   DeletableObjectType,
   AdtLockResult,
@@ -34,9 +37,11 @@ import type {
 import {
   applyTemplate,
   normalizeObjectName,
+  parseTagAttributes,
   parseTransportRequestList,
   parseXmlAttribute,
   parseXmlTag,
+  trimBody,
   truncateObjectName,
   xmlEscape,
 } from "./utils.js";
@@ -64,6 +69,29 @@ interface RequestOptions {
 interface SessionState {
   csrfToken?: string;
   cookies: Map<string, string>;
+}
+
+interface ActivationDiagnosticMessage {
+  type: string;
+  objectDescription?: string;
+  line?: string;
+  href?: string;
+  shortText: string;
+}
+
+interface ActivationDiagnostics {
+  category: string;
+  summary: string;
+  checkExecuted?: string;
+  activationExecuted?: string;
+  generationExecuted?: string;
+  messages: ActivationDiagnosticMessage[];
+  resultBody?: string;
+}
+
+interface OrderedDependencyObject extends AdtDependencyObjectInput {
+  requestedOrder: number;
+  executionOrder: number;
 }
 
 export class AdtClient {
@@ -873,16 +901,33 @@ export class AdtClient {
   }
 
   async activateObject(request: AdtActivationRequest): Promise<AdtResponseSummary> {
-    const activationUri = this.toAbsoluteAdtUri(request.uri);
-    const activationType = request.type ?? this.inferActivationObjectType(activationUri);
+    const activationInputName = request.objectName ?? request.name;
+    const rawUri = request.objectType
+      ? this.resolveObjectUri(request.objectType, activationInputName, request.uri)
+      : request.uri;
+
+    if (!rawUri) {
+      throw new Error("Either uri or objectType + objectName must be supplied for activation.");
+    }
+
+    const activationUri = request.objectType
+      ? this.toAbsoluteAdtUri(
+        this.toDefinitionIdentifierUri(request.objectType, activationInputName, rawUri),
+      )
+      : this.toAbsoluteAdtUri(rawUri).replace(/\/source\/main$/i, "");
+
+    const activationType = request.type
+      ?? (request.objectType ? this.toActivationObjectType(request.objectType) : undefined)
+      ?? this.inferActivationObjectType(activationUri);
     const activationParentUri = request.parentUri ? this.toAbsoluteAdtUri(request.parentUri) : undefined;
+    const activationName = activationInputName ?? this.extractObjectNameFromUri(activationUri);
     const body =
       `<?xml version="1.0" encoding="UTF-8"?>` +
       `<adtcore:objectReferences xmlns:adtcore="http://www.sap.com/adt/core">` +
       `<adtcore:objectReference adtcore:uri="${activationUri}"` +
       `${activationType ? ` adtcore:type="${activationType}"` : ""}` +
       `${activationParentUri ? ` adtcore:parentUri="${activationParentUri}"` : ""}` +
-      `${request.name ? ` adtcore:name="${normalizeObjectName(request.name)}"` : ""}` +
+      `${activationName ? ` adtcore:name="${normalizeObjectName(activationName)}"` : ""}` +
       `/>` +
       `</adtcore:objectReferences>`;
 
@@ -905,32 +950,181 @@ export class AdtClient {
     }
 
     if (!activationRun) {
-      throw new Error(`ADT activation run did not return a response for ${request.name ?? request.uri}`);
+      throw new Error(`ADT activation run did not return a response for ${activationName ?? activationUri}`);
     }
 
     this.ensureSuccess(
       activationRun,
-      `Failed to start activation for ${request.name ?? request.uri}`,
+      `Failed to start activation for ${activationName ?? activationUri}`,
     );
 
     const runLocation = activationRun.headers.location ?? activationRun.headers["content-location"];
     if (!runLocation) {
-      throw new Error(`ADT activation run did not return a run location for ${request.name ?? request.uri}`);
+      throw new Error(`ADT activation run did not return a run location for ${activationName ?? activationUri}`);
     }
 
     const relativeRunLocation = runLocation.replace(/^https?:\/\/[^/]+/, "").replace("/sap/bc/adt", "");
     const finalRun = await this.waitForActivationRun(relativeRunLocation);
+    const diagnostics = await this.getActivationDiagnostics(finalRun);
 
-    if (request.name) {
+    let inactiveAfterRun = false;
+    if (activationName) {
       const inactiveObjects = await this.getActivationLog();
-      if (inactiveObjects.body.includes(`adtcore:name="${normalizeObjectName(request.name)}"`)) {
-        throw new Error(
-          `Activation finished but object ${normalizeObjectName(request.name)} is still inactive.\n${finalRun.body}`,
-        );
-      }
+      inactiveAfterRun = inactiveObjects.body.includes(`adtcore:name="${normalizeObjectName(activationName)}"`);
+    }
+
+    if (this.didActivationFail(diagnostics, inactiveAfterRun)) {
+      throw new Error(
+        this.formatActivationFailureMessage(
+          activationName ?? activationUri,
+          diagnostics,
+          finalRun.body,
+          inactiveAfterRun,
+        ),
+      );
     }
 
     return finalRun;
+  }
+
+  async activateDependencyChain(input: AdtActivateDependencyChainInput): Promise<Array<{
+    requestedOrder: number;
+    executionOrder: number;
+    objectType: SupportedObjectType;
+    objectName?: string;
+    uri?: string;
+    response: AdtResponseSummary;
+  }>> {
+    const orderedObjects = this.orderDependencyObjects(input.orderProfile ?? "auto", input.objects);
+    const results: Array<{
+      requestedOrder: number;
+      executionOrder: number;
+      objectType: SupportedObjectType;
+      objectName?: string;
+      uri?: string;
+      response: AdtResponseSummary;
+    }> = [];
+
+    for (const item of orderedObjects) {
+      const response = await this.activateObject({
+        objectType: item.objectType,
+        objectName: item.objectName,
+        uri: item.uri,
+      });
+
+      results.push({
+        requestedOrder: item.requestedOrder,
+        executionOrder: item.executionOrder,
+        objectType: item.objectType,
+        objectName: item.objectName,
+        uri: item.uri,
+        response,
+      });
+    }
+
+    return results;
+  }
+
+  async activateObjectSet(input: AdtActivateObjectSetInput): Promise<{
+    orderProfile: "auto" | "consumerProgram" | "consumptionView";
+    stopOnError: boolean;
+    requestedCount: number;
+    attemptedCount: number;
+    successCount: number;
+    failureCount: number;
+    stopped: boolean;
+    stoppedAtExecutionOrder?: number;
+    stoppedAtObject?: {
+      objectType: SupportedObjectType;
+      objectName?: string;
+      uri?: string;
+    };
+    results: Array<{
+      requestedOrder: number;
+      executionOrder: number;
+      objectType: SupportedObjectType;
+      objectName?: string;
+      uri?: string;
+      success: boolean;
+      error?: string;
+      response?: AdtResponseSummary;
+    }>;
+  }> {
+    const orderProfile = input.orderProfile ?? "auto";
+    const stopOnError = input.stopOnError ?? true;
+    const orderedObjects = this.orderDependencyObjects(orderProfile, input.objects);
+    const results: Array<{
+      requestedOrder: number;
+      executionOrder: number;
+      objectType: SupportedObjectType;
+      objectName?: string;
+      uri?: string;
+      success: boolean;
+      error?: string;
+      response?: AdtResponseSummary;
+    }> = [];
+    let stoppedAtExecutionOrder: number | undefined;
+    let stoppedAtObject:
+      | {
+        objectType: SupportedObjectType;
+        objectName?: string;
+        uri?: string;
+      }
+      | undefined;
+
+    for (const item of orderedObjects) {
+      try {
+        const response = await this.activateObject({
+          objectType: item.objectType,
+          objectName: item.objectName,
+          uri: item.uri,
+        });
+
+        results.push({
+          requestedOrder: item.requestedOrder,
+          executionOrder: item.executionOrder,
+          objectType: item.objectType,
+          objectName: item.objectName,
+          uri: item.uri,
+          success: true,
+          response,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        results.push({
+          requestedOrder: item.requestedOrder,
+          executionOrder: item.executionOrder,
+          objectType: item.objectType,
+          objectName: item.objectName,
+          uri: item.uri,
+          success: false,
+          error: message,
+        });
+
+        if (stopOnError) {
+          stoppedAtExecutionOrder = item.executionOrder;
+          stoppedAtObject = {
+            objectType: item.objectType,
+            objectName: item.objectName,
+            uri: item.uri,
+          };
+          break;
+        }
+      }
+    }
+
+    return {
+      orderProfile,
+      stopOnError,
+      requestedCount: input.objects.length,
+      attemptedCount: results.length,
+      successCount: results.filter((item) => item.success).length,
+      failureCount: results.filter((item) => !item.success).length,
+      stopped: stoppedAtExecutionOrder !== undefined,
+      stoppedAtExecutionOrder,
+      stoppedAtObject,
+      results,
+    };
   }
 
   async getActivationLog(): Promise<AdtResponseSummary> {
@@ -962,6 +1156,252 @@ export class AdtClient {
 
   private isTransientActivationStartFailure(response: AdtResponseSummary): boolean {
     return response.status === 451 && response.body.includes("connection closed (no data)");
+  }
+
+  private orderDependencyObjects(
+    orderProfile: "auto" | "consumerProgram" | "consumptionView",
+    objects: AdtDependencyObjectInput[],
+  ): OrderedDependencyObject[] {
+    const rankByProfile: Record<"auto" | "consumerProgram" | "consumptionView", Record<SupportedObjectType, number>> = {
+      auto: {
+        ddls: 10,
+        dcls: 20,
+        ddlx: 30,
+        class: 40,
+        program: 50,
+      },
+      consumerProgram: {
+        ddls: 10,
+        class: 20,
+        program: 30,
+        dcls: 40,
+        ddlx: 50,
+      },
+      consumptionView: {
+        ddls: 10,
+        dcls: 20,
+        ddlx: 30,
+        class: 40,
+        program: 50,
+      },
+    };
+
+    return objects
+      .map((item, index) => ({
+        ...item,
+        requestedOrder: index + 1,
+        executionOrder: 0,
+      }))
+      .sort((left, right) => {
+        const leftRank = rankByProfile[orderProfile][left.objectType] ?? 999;
+        const rightRank = rankByProfile[orderProfile][right.objectType] ?? 999;
+        if (leftRank !== rightRank) {
+          return leftRank - rightRank;
+        }
+        return left.requestedOrder - right.requestedOrder;
+      })
+      .map((item, index) => ({
+        ...item,
+        executionOrder: index + 1,
+      }));
+  }
+
+  private async getActivationDiagnostics(finalRun: AdtResponseSummary): Promise<ActivationDiagnostics | undefined> {
+    const resultHref = this.extractActivationResultHref(finalRun.body);
+    if (!resultHref) {
+      return undefined;
+    }
+
+    const resultUri = resultHref.replace(/^https?:\/\/[^/]+/, "").replace("/sap/bc/adt", "");
+    const resultResponse = await this.request("GET", resultUri, {
+      stateful: true,
+    });
+
+    const messages = this.parseActivationMessages(resultResponse.body);
+    const checkExecuted = parseXmlAttribute(resultResponse.body, "chkl:properties", "checkExecuted");
+    const activationExecuted = parseXmlAttribute(
+      resultResponse.body,
+      "chkl:properties",
+      "activationExecuted",
+    );
+    const generationExecuted = parseXmlAttribute(
+      resultResponse.body,
+      "chkl:properties",
+      "generationExecuted",
+    );
+
+    return {
+      category: this.classifyActivationFailure(messages, activationExecuted, resultResponse.body),
+      summary: this.summarizeActivationDiagnostics(messages, checkExecuted, activationExecuted, generationExecuted),
+      checkExecuted,
+      activationExecuted,
+      generationExecuted,
+      messages,
+      resultBody: resultResponse.body,
+    };
+  }
+
+  private extractActivationResultHref(runBody: string): string | undefined {
+    const match = runBody.match(/<atom:link\b[^>]*href="([^"]+)"[^>]*title="Activation result link"/i);
+    return match?.[1];
+  }
+
+  private parseActivationMessages(xml: string): ActivationDiagnosticMessage[] {
+    const messages: ActivationDiagnosticMessage[] = [];
+    const regex = /<msg\b([^>]*)>([\s\S]*?)<\/msg>/gi;
+    let match = regex.exec(xml);
+
+    while (match) {
+      const attrs = parseTagAttributes(match[1]);
+      const body = match[2];
+      const textMatches = [...body.matchAll(/<txt>([\s\S]*?)<\/txt>/gi)];
+      const shortText = textMatches
+        .map((item) => item[1].trim())
+        .filter((item) => item.length > 0)
+        .join(" | ");
+
+      messages.push({
+        type: attrs.type ?? "",
+        objectDescription: attrs.objDescr,
+        line: attrs.line,
+        href: attrs.href,
+        shortText,
+      });
+
+      match = regex.exec(xml);
+    }
+
+    return messages;
+  }
+
+  private didActivationFail(
+    diagnostics: ActivationDiagnostics | undefined,
+    inactiveAfterRun: boolean,
+  ): boolean {
+    if (!diagnostics) {
+      return inactiveAfterRun;
+    }
+
+    if (diagnostics.messages.some((message) => ["E", "A", "X"].includes(message.type))) {
+      return true;
+    }
+
+    return inactiveAfterRun;
+  }
+
+  private classifyActivationFailure(
+    messages: ActivationDiagnosticMessage[],
+    activationExecuted: string | undefined,
+    resultBody: string,
+  ): string {
+    const combined = `${messages.map((message) => message.shortText).join(" ")} ${resultBody}`.toLowerCase();
+
+    if (combined.includes("locked") || combined.includes("request") || combined.includes("transport")) {
+      return "lock_or_transport_error";
+    }
+
+    if (
+      combined.includes("unknown")
+      || combined.includes("syntax")
+      || combined.includes("statement")
+      || combined.includes("type \"")
+    ) {
+      return "syntax_or_semantic_error";
+    }
+
+    if (
+      combined.includes("does not exist")
+      || combined.includes("not found")
+      || combined.includes("inactive")
+      || combined.includes("cancelled")
+    ) {
+      return "activation_dependency_failure";
+    }
+
+    if (activationExecuted === "false") {
+      return "activation_not_executed";
+    }
+
+    if (messages.some((message) => ["E", "A", "X"].includes(message.type))) {
+      return "activation_error";
+    }
+
+    return "activation_failed";
+  }
+
+  private summarizeActivationDiagnostics(
+    messages: ActivationDiagnosticMessage[],
+    checkExecuted: string | undefined,
+    activationExecuted: string | undefined,
+    generationExecuted: string | undefined,
+  ): string {
+    const errorCount = messages.filter((message) => ["E", "A", "X"].includes(message.type)).length;
+    const warningCount = messages.filter((message) => message.type === "W").length;
+    const firstRelevant =
+      messages.find((message) => ["E", "A", "X"].includes(message.type))
+      ?? messages.find((message) => message.type === "W");
+    const executionSummary =
+      `checkExecuted=${checkExecuted ?? "?"}, `
+      + `activationExecuted=${activationExecuted ?? "?"}, `
+      + `generationExecuted=${generationExecuted ?? "?"}`;
+
+    if (!firstRelevant) {
+      return `${executionSummary}; no detailed activation messages returned.`;
+    }
+
+    const objectPart = firstRelevant.objectDescription ? ` Object: ${firstRelevant.objectDescription}.` : "";
+    const linePart = firstRelevant.line && firstRelevant.line !== "0" ? ` Line: ${firstRelevant.line}.` : "";
+    return `${executionSummary}; errors=${errorCount}, warnings=${warningCount}. First message: ${firstRelevant.shortText}.${objectPart}${linePart}`;
+  }
+
+  private formatActivationFailureMessage(
+    activationNameOrUri: string,
+    diagnostics: ActivationDiagnostics | undefined,
+    finalRunBody: string,
+    inactiveAfterRun = false,
+  ): string {
+    const normalizedTarget = activationNameOrUri.startsWith("/sap/bc/adt/")
+      ? activationNameOrUri
+      : normalizeObjectName(activationNameOrUri);
+    const lines = [
+      `Activation failed for ${normalizedTarget}.`,
+    ];
+
+    if (inactiveAfterRun) {
+      lines.push("The object is still listed as inactive after the activation run.");
+    }
+
+    if (diagnostics) {
+      lines.push(`Category: ${diagnostics.category}`);
+      lines.push(`Summary: ${diagnostics.summary}`);
+
+      const firstMessages = diagnostics.messages
+        .filter((message) => message.shortText.length > 0)
+        .sort((left, right) => {
+          const leftRank = ["E", "A", "X"].includes(left.type) ? 0 : left.type === "W" ? 1 : 2;
+          const rightRank = ["E", "A", "X"].includes(right.type) ? 0 : right.type === "W" ? 1 : 2;
+          return leftRank - rightRank;
+        })
+        .slice(0, 3)
+        .map((message, index) => {
+          const objectPart = message.objectDescription ? ` [${message.objectDescription}]` : "";
+          return `${index + 1}. ${message.type}${objectPart} ${message.shortText}`;
+        });
+
+      if (firstMessages.length > 0) {
+        lines.push("Messages:");
+        lines.push(...firstMessages);
+      }
+
+      if (diagnostics.resultBody) {
+        lines.push("Raw activation result XML:");
+        lines.push(trimBody(diagnostics.resultBody, 6000));
+      }
+    }
+
+    lines.push("Raw activation run XML:");
+    lines.push(trimBody(finalRunBody, 3000));
+    return lines.join("\n");
   }
 
   private extractObjectNameFromUri(uri: string): string {

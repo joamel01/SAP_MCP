@@ -5,14 +5,19 @@ import { AdtClient } from "./adt-client.js";
 import { assertAllowedObjectType, assertAllowedPackage } from "./authorization.js";
 import { loadConfig } from "./config.js";
 import type { DeletableObjectType, SupportedObjectType } from "./types.js";
-import { parseTransportRequestDetail, parseTransportRequestList, trimBody } from "./utils.js";
+import {
+  parseAbapUnitResult,
+  parseTransportRequestDetail,
+  parseTransportRequestList,
+  trimBody,
+} from "./utils.js";
 
 const config = loadConfig();
 const adtClient = new AdtClient(config);
 
 const server = new McpServer({
   name: "sap-adt-mcp",
-  version: "1.2.0",
+  version: "1.3.0",
 });
 
 function textResult(text: string) {
@@ -250,7 +255,7 @@ server.tool(
 
 server.tool(
   "sap_adt_run_abap_unit",
-  "Run ABAP Unit via SAP ADT for one class or executable program and return the raw XML result plus simple counters.",
+  "Run ABAP Unit via SAP ADT for one class or executable program and return the raw XML result plus a compact structured summary when the payload supports it.",
   {
     objectType: z.enum(["class", "program"]),
     objectName: z.string().optional(),
@@ -299,17 +304,13 @@ server.tool(
     });
 
     const body = trimBody(response.body);
-    const testClassCount = (body.match(/<testClass\b/g) ?? []).length;
-    const testMethodCount = (body.match(/<testMethod\b/g) ?? []).length;
-    const alertCount = (body.match(/<alert\b/g) ?? []).length;
+    const parsedResult = parseAbapUnitResult(response.body);
 
     return textResult(JSON.stringify(
       {
         status: response.status,
         statusText: response.statusText,
-        testClassCount,
-        testMethodCount,
-        alertCount,
+        parsedResult,
         body,
       },
       null,
@@ -356,19 +357,135 @@ server.tool(
 
 server.tool(
   "sap_adt_activate_object",
-  "Activate an ABAP repository object via SAP ADT. Requires the object's ADT definition uri.",
+  "Activate an ABAP repository object via SAP ADT. Supply either objectType+objectName or a direct ADT uri. Source uris are normalized automatically.",
   {
-    uri: z.string(),
+    objectType: z.enum(["class", "program", "ddls", "dcls", "ddlx"]).optional(),
+    objectName: z.string().optional(),
+    uri: z.string().optional(),
     name: z.string().optional(),
     type: z.string().optional(),
     parentUri: z.string().optional(),
+    packageName: z.string().optional(),
   },
-  async ({ uri, name, type, parentUri }) => {
-    const response = await adtClient.activateObject({ uri, name, type, parentUri });
+  async ({ objectType, objectName, uri, name, type, parentUri, packageName }) => {
+    if (objectType) {
+      assertAllowedObjectType(config, objectType);
+    }
+    assertAllowedPackage(config, packageName);
+
+    const response = await adtClient.activateObject({
+      objectType: objectType as SupportedObjectType | undefined,
+      objectName,
+      uri,
+      name,
+      type,
+      parentUri,
+    });
     return textResult(JSON.stringify(
       {
         ...response,
         body: trimBody(response.body),
+      },
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
+  "sap_adt_activate_dependency_chain",
+  "Activate a small known dependency chain in a deterministic SAP-friendly order. Use this when the caller already knows the affected objects but should not have to decide the activation sequence.",
+  {
+    orderProfile: z.enum(["auto", "consumerProgram", "consumptionView"]).optional(),
+    objects: z.array(
+      z.object({
+        objectType: z.enum(["class", "program", "ddls", "dcls", "ddlx"]),
+        objectName: z.string().optional(),
+        uri: z.string().optional(),
+        packageName: z.string().optional(),
+      }),
+    ).min(1),
+  },
+  async ({ orderProfile, objects }) => {
+    for (const item of objects) {
+      assertAllowedObjectType(config, item.objectType);
+      assertAllowedPackage(config, item.packageName);
+    }
+
+    const results = await adtClient.activateDependencyChain({
+      orderProfile,
+      objects: objects.map((item) => ({
+        objectType: item.objectType as SupportedObjectType,
+        objectName: item.objectName,
+        uri: item.uri,
+        packageName: item.packageName,
+      })),
+    });
+
+    return textResult(JSON.stringify(
+      results.map((item) => ({
+        requestedOrder: item.requestedOrder,
+        executionOrder: item.executionOrder,
+        objectType: item.objectType,
+        objectName: item.objectName,
+        uri: item.uri,
+        status: item.response.status,
+        statusText: item.response.statusText,
+        body: trimBody(item.response.body),
+      })),
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
+  "sap_adt_activate_object_set",
+  "Activate a small mixed object set in deterministic order. Use stopOnError=false when you want a full per-object result instead of halting at the first activation failure.",
+  {
+    orderProfile: z.enum(["auto", "consumerProgram", "consumptionView"]).optional(),
+    stopOnError: z.boolean().optional(),
+    objects: z.array(
+      z.object({
+        objectType: z.enum(["class", "program", "ddls", "dcls", "ddlx"]),
+        objectName: z.string().optional(),
+        uri: z.string().optional(),
+        packageName: z.string().optional(),
+      }),
+    ).min(1),
+  },
+  async ({ orderProfile, stopOnError, objects }) => {
+    for (const item of objects) {
+      assertAllowedObjectType(config, item.objectType);
+      assertAllowedPackage(config, item.packageName);
+    }
+
+    const result = await adtClient.activateObjectSet({
+      orderProfile,
+      stopOnError,
+      objects: objects.map((item) => ({
+        objectType: item.objectType as SupportedObjectType,
+        objectName: item.objectName,
+        uri: item.uri,
+        packageName: item.packageName,
+      })),
+    });
+
+    return textResult(JSON.stringify(
+      {
+        ...result,
+        results: result.results.map((item) => ({
+          requestedOrder: item.requestedOrder,
+          executionOrder: item.executionOrder,
+          objectType: item.objectType,
+          objectName: item.objectName,
+          uri: item.uri,
+          success: item.success,
+          error: item.error,
+          status: item.response?.status,
+          statusText: item.response?.statusText,
+          body: item.response ? trimBody(item.response.body) : undefined,
+        })),
       },
       null,
       2,
