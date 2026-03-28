@@ -30,12 +30,16 @@ import type {
   AdtRunProgramInput,
   AdtReadSearchHelpInput,
   AdtSetUserParametersInput,
+  AdtSyntaxCheckObjectInput,
+  AdtSyntaxCheckSourceInput,
   AdtCreateStructureInput,
   AdtCreateTableInput,
   AdtCreateTableTypeInput,
   AdtDeleteObjectInput,
   AdtDependencyObjectInput,
+  AdtLockObjectInput,
   AdtRunAbapUnitInput,
+  AdtUnlockObjectInput,
   DeletableObjectType,
   AdtLockResult,
   AdtResponseSummary,
@@ -45,6 +49,7 @@ import type {
 import {
   applyTemplate,
   normalizeObjectName,
+  parseSyntaxCheckResult,
   parseTagAttributes,
   parseTransportRequestList,
   parseXmlAttribute,
@@ -1275,6 +1280,129 @@ export class AdtClient {
     return finalRun;
   }
 
+  async syntaxCheckObject(input: AdtSyntaxCheckObjectInput): Promise<{
+    response: AdtResponseSummary;
+    parsedResult: ReturnType<typeof parseSyntaxCheckResult>;
+    objectType: SupportedObjectType;
+    objectName?: string;
+    definitionUri: string;
+    sourceUri?: string;
+    version: "active" | "inactive";
+    mode: "repository" | "source_artifact";
+  }> {
+    const requestedUri = input.uri;
+    const inferredObjectType = input.objectType ?? (requestedUri ? this.inferSupportedObjectTypeFromUri(requestedUri) : undefined);
+    if (!inferredObjectType) {
+      throw new Error("Either objectType or a recognizable ADT uri must be supplied for syntax check.");
+    }
+
+    if (!this.isSyntaxCheckSupportedObjectType(inferredObjectType)) {
+      throw new Error(
+        `Syntax check currently supports class, interface, program, DDLS, DCLS and DDLX. Received '${inferredObjectType}'.`,
+      );
+    }
+
+    const objectName = input.objectName;
+    const rawUri = input.objectType
+      ? this.resolveObjectUri(input.objectType, objectName, input.containerName, requestedUri)
+      : requestedUri;
+
+    if (!rawUri) {
+      throw new Error("Either uri or objectType + objectName must be supplied for syntax check.");
+    }
+
+    const version = input.version ?? "active";
+    const definitionUri = input.objectType
+      ? this.toDefinitionIdentifierUri(inferredObjectType, objectName, rawUri, input.containerName)
+      : this.toSyntaxCheckDefinitionUri(inferredObjectType, rawUri);
+
+    const response = this.isRepositorySyntaxCheckType(inferredObjectType)
+      ? await this.runRepositorySyntaxCheck(definitionUri, version)
+      : await this.runSourceArtifactSyntaxCheck(
+        definitionUri,
+        this.toSyntaxCheckSourceUri(inferredObjectType, rawUri),
+        version,
+      );
+
+    this.ensureSuccess(
+      response,
+      `Failed to run syntax check for ${normalizeObjectName(objectName ?? this.extractObjectNameFromUri(definitionUri))}`,
+    );
+
+    return {
+      response,
+      parsedResult: parseSyntaxCheckResult(response.body),
+      objectType: inferredObjectType,
+      objectName: objectName ?? this.extractObjectNameFromUri(definitionUri),
+      definitionUri: this.toAbsoluteAdtUri(definitionUri),
+      sourceUri: this.isRepositorySyntaxCheckType(inferredObjectType)
+        ? undefined
+        : this.toAbsoluteAdtUri(this.toSyntaxCheckSourceUri(inferredObjectType, rawUri)),
+      version,
+      mode: this.isRepositorySyntaxCheckType(inferredObjectType) ? "repository" : "source_artifact",
+    };
+  }
+
+  async syntaxCheckSource(input: AdtSyntaxCheckSourceInput): Promise<{
+    response: AdtResponseSummary;
+    parsedResult: ReturnType<typeof parseSyntaxCheckResult>;
+    objectType: SupportedObjectType;
+    objectName?: string;
+    definitionUri: string;
+    sourceUri: string;
+    version: "active" | "inactive";
+    mode: "draft_source_artifact";
+  }> {
+    const requestedUri = input.uri;
+    const inferredObjectType = input.objectType ?? (requestedUri ? this.inferSupportedObjectTypeFromUri(requestedUri) : undefined);
+    if (!inferredObjectType) {
+      throw new Error("Either objectType or a recognizable ADT uri must be supplied for source syntax check.");
+    }
+
+    if (!this.isSyntaxCheckSupportedObjectType(inferredObjectType)) {
+      throw new Error(
+        `Source syntax check currently supports class, interface, program, DDLS, DCLS and DDLX. Received '${inferredObjectType}'.`,
+      );
+    }
+
+    const objectName = input.objectName;
+    const rawUri = input.objectType
+      ? this.resolveObjectUri(input.objectType, objectName, input.containerName, requestedUri)
+      : requestedUri;
+
+    if (!rawUri) {
+      throw new Error("Either uri or objectType + objectName must be supplied for source syntax check.");
+    }
+
+    const version = input.version ?? "active";
+    const definitionUri = input.objectType
+      ? this.toDefinitionIdentifierUri(inferredObjectType, objectName, rawUri, input.containerName)
+      : this.toSyntaxCheckDefinitionUri(inferredObjectType, rawUri);
+    const sourceUri = this.toSyntaxCheckSourceUri(inferredObjectType, rawUri);
+    const response = await this.runSourceArtifactSyntaxCheck(
+      definitionUri,
+      sourceUri,
+      version,
+      input.content,
+    );
+
+    this.ensureSuccess(
+      response,
+      `Failed to run source syntax check for ${normalizeObjectName(objectName ?? this.extractObjectNameFromUri(definitionUri))}`,
+    );
+
+    return {
+      response,
+      parsedResult: parseSyntaxCheckResult(response.body),
+      objectType: inferredObjectType,
+      objectName: objectName ?? this.extractObjectNameFromUri(definitionUri),
+      definitionUri: this.toAbsoluteAdtUri(definitionUri),
+      sourceUri: this.toAbsoluteAdtUri(sourceUri),
+      version,
+      mode: "draft_source_artifact",
+    };
+  }
+
   async activateDependencyChain(input: AdtActivateDependencyChainInput): Promise<Array<{
     requestedOrder: number;
     executionOrder: number;
@@ -1750,6 +1878,104 @@ export class AdtClient {
     );
   }
 
+  async lockObject(input: AdtLockObjectInput): Promise<{
+    objectType?: SupportedObjectType;
+    objectName?: string;
+    lockUri: string;
+    result: AdtLockResult;
+  }> {
+    const lockUri = this.resolveExplicitLockUri(input.objectType, input.objectName, input.containerName, input.uri);
+    const result = await this.lock(lockUri);
+    return {
+      objectType: input.objectType,
+      objectName: input.objectName ?? this.extractObjectNameFromUri(lockUri),
+      lockUri: this.toAbsoluteAdtUri(lockUri),
+      result,
+    };
+  }
+
+  async unlockObject(input: AdtUnlockObjectInput): Promise<{
+    objectType?: SupportedObjectType;
+    objectName?: string;
+    lockUri: string;
+    response: AdtResponseSummary;
+  }> {
+    const lockUri = this.resolveExplicitLockUri(input.objectType, input.objectName, input.containerName, input.uri);
+    const response = await this.unlock(lockUri, input.lockHandle);
+    this.ensureSuccess(
+      response,
+      `Failed to unlock ${normalizeObjectName(input.objectName ?? this.extractObjectNameFromUri(lockUri))}`,
+    );
+    return {
+      objectType: input.objectType,
+      objectName: input.objectName ?? this.extractObjectNameFromUri(lockUri),
+      lockUri: this.toAbsoluteAdtUri(lockUri),
+      response,
+    };
+  }
+
+  private async runRepositorySyntaxCheck(
+    definitionUri: string,
+    version: "active" | "inactive",
+  ): Promise<AdtResponseSummary> {
+    const absoluteDefinitionUri = this.toAbsoluteAdtUri(definitionUri);
+    const body =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<chkrun:checkObjectList xmlns:adtcore="http://www.sap.com/adt/core" xmlns:chkrun="http://www.sap.com/adt/checkrun">` +
+      `<chkrun:checkObject adtcore:uri="${xmlEscape(absoluteDefinitionUri)}" chkrun:version="${xmlEscape(version)}"/>` +
+      `</chkrun:checkObjectList>`;
+
+    return this.request("POST", "/checkruns?reporters=abapCheckRun", {
+      body,
+      headers: {
+        Accept: "application/vnd.sap.adt.checkmessages+xml",
+        "Content-Type": "application/vnd.sap.adt.checkobjects+xml",
+      },
+      stateful: true,
+    });
+  }
+
+  private async runSourceArtifactSyntaxCheck(
+    definitionUri: string,
+    sourceUri: string,
+    version: "active" | "inactive",
+    contentOverride?: string,
+  ): Promise<AdtResponseSummary> {
+    const absoluteDefinitionUri = this.toAbsoluteAdtUri(definitionUri);
+    const absoluteSourceUri = this.toAbsoluteAdtUri(sourceUri);
+    const content = contentOverride ?? await this.readSourceArtifactForSyntaxCheck(definitionUri, sourceUri);
+    const encodedContent = Buffer.from(content, "utf8").toString("base64");
+    const body =
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<chkrun:checkObjectList xmlns:adtcore="http://www.sap.com/adt/core" xmlns:chkrun="http://www.sap.com/adt/checkrun">` +
+      `<chkrun:checkObject adtcore:uri="${xmlEscape(absoluteDefinitionUri)}" chkrun:version="${xmlEscape(version)}">` +
+      `<chkrun:artifacts>` +
+      `<chkrun:artifact chkrun:contentType="text/plain; charset=utf-8" chkrun:uri="${xmlEscape(absoluteSourceUri)}">` +
+      `<chkrun:content>${encodedContent}</chkrun:content>` +
+      `</chkrun:artifact>` +
+      `</chkrun:artifacts>` +
+      `</chkrun:checkObject>` +
+      `</chkrun:checkObjectList>`;
+
+    return this.request("POST", "/checkruns?reporters=abapCheckRun", {
+      body,
+      headers: {
+        Accept: "application/vnd.sap.adt.checkmessages+xml",
+        "Content-Type": "application/vnd.sap.adt.checkobjects+xml",
+      },
+      stateful: true,
+    });
+  }
+
+  private async readSourceArtifactForSyntaxCheck(definitionUri: string, sourceUri: string): Promise<string> {
+    const sourceResponse = await this.request("GET", sourceUri);
+    this.ensureSuccess(
+      sourceResponse,
+      `Failed to read current source for syntax check of ${normalizeObjectName(this.extractObjectNameFromUri(definitionUri))}`,
+    );
+    return sourceResponse.body;
+  }
+
   private resolveObjectUri(
     objectType: SupportedObjectType,
     objectName?: string,
@@ -1773,6 +1999,84 @@ export class AdtClient {
       objectName: normalizeObjectName(objectName),
       containerName: containerName ? normalizeObjectName(containerName) : "",
     });
+  }
+
+  private resolveExplicitLockUri(
+    objectType?: SupportedObjectType,
+    objectName?: string,
+    containerName?: string,
+    explicitUri?: string,
+  ): string {
+    if (objectType) {
+      return this.resolveObjectUri(objectType, objectName, containerName, explicitUri);
+    }
+
+    if (!explicitUri) {
+      throw new Error("Either uri or objectType + objectName must be supplied for lock handling.");
+    }
+
+    const relativeUri = this.toRelativeAdtRequestUri(explicitUri);
+    return relativeUri.endsWith("/source/main") ? relativeUri : `${relativeUri.replace(/\/$/, "")}/source/main`;
+  }
+
+  private isSyntaxCheckSupportedObjectType(objectType: SupportedObjectType): boolean {
+    return ["interface", "class", "program", "ddls", "dcls", "ddlx"].includes(objectType);
+  }
+
+  private isRepositorySyntaxCheckType(objectType: SupportedObjectType): boolean {
+    return objectType === "ddls" || objectType === "dcls" || objectType === "ddlx";
+  }
+
+  private inferSupportedObjectTypeFromUri(uri: string): SupportedObjectType | undefined {
+    const normalizedUri = this.toAbsoluteAdtUri(uri).toLowerCase();
+
+    if (normalizedUri.includes("/oo/interfaces/")) {
+      return "interface";
+    }
+    if (normalizedUri.includes("/oo/classes/")) {
+      return "class";
+    }
+    if (normalizedUri.includes("/programs/programs/")) {
+      return "program";
+    }
+    if (normalizedUri.includes("/ddic/ddl/sources/")) {
+      return "ddls";
+    }
+    if (normalizedUri.includes("/bo/behaviordefinitions/")) {
+      return "bdef";
+    }
+    if (normalizedUri.includes("/acm/dcl/sources/")) {
+      return "dcls";
+    }
+    if (normalizedUri.includes("/ddic/ddlx/sources/")) {
+      return "ddlx";
+    }
+
+    return undefined;
+  }
+
+  private toRelativeAdtRequestUri(uri: string): string {
+    const withoutHost = uri.replace(/^https?:\/\/[^/]+/i, "");
+    if (withoutHost.startsWith("/sap/bc/adt/")) {
+      return withoutHost.replace(/^\/sap\/bc\/adt/i, "");
+    }
+    return withoutHost.startsWith("/") ? withoutHost : `/${withoutHost}`;
+  }
+
+  private toSyntaxCheckDefinitionUri(objectType: SupportedObjectType, uri: string): string {
+    const relativeUri = this.toRelativeAdtRequestUri(uri);
+    if (this.isRepositorySyntaxCheckType(objectType)) {
+      return relativeUri.replace(/\/source\/main$/i, "");
+    }
+    return relativeUri.replace(/\/source\/main$/i, "");
+  }
+
+  private toSyntaxCheckSourceUri(objectType: SupportedObjectType, uri: string): string {
+    const relativeUri = this.toRelativeAdtRequestUri(uri);
+    if (this.isRepositorySyntaxCheckType(objectType)) {
+      return relativeUri.replace(/\/source\/main$/i, "");
+    }
+    return relativeUri.endsWith("/source/main") ? relativeUri : `${relativeUri.replace(/\/$/, "")}/source/main`;
   }
 
   private toDefinitionIdentifierUri(

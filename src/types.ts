@@ -67,6 +67,17 @@ export interface AdtActivationRequest {
   parentUri?: string;
 }
 
+export interface AdtLockObjectInput {
+  objectType?: SupportedObjectType;
+  objectName?: string;
+  containerName?: string;
+  uri?: string;
+}
+
+export interface AdtUnlockObjectInput extends AdtLockObjectInput {
+  lockHandle: string;
+}
+
 export interface AdtCreatePackageInput {
   packageName: string;
   description: string;
@@ -335,6 +346,18 @@ export interface AdtRunAbapUnitInput {
   shortDuration?: boolean;
   mediumDuration?: boolean;
   longDuration?: boolean;
+}
+
+export interface AdtSyntaxCheckObjectInput {
+  objectType?: SupportedObjectType;
+  objectName?: string;
+  containerName?: string;
+  uri?: string;
+  version?: "active" | "inactive";
+}
+
+export interface AdtSyntaxCheckSourceInput extends AdtSyntaxCheckObjectInput {
+  content: string;
 }
 
 export interface AdtDependencyObjectInput {

@@ -14,6 +14,10 @@
 ### Write, Activate, Delete
 
 - `sap_adt_write_object`
+- `sap_adt_lock_object`
+- `sap_adt_unlock_object`
+- `sap_adt_syntax_check_object`
+- `sap_adt_syntax_check_source`
 - `sap_adt_activate_object`
 - `sap_adt_activate_dependency_chain`
 - `sap_adt_activate_object_set`

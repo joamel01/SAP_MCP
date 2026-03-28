@@ -743,6 +743,177 @@ server.tool(
 );
 
 server.tool(
+  "sap_adt_syntax_check_object",
+  "Run an ADT syntax check without activating the object. Supports class, interface, program, DDLS, DCLS and DDLX. Supply objectType+objectName or a direct ADT uri.",
+  {
+    objectType: z.enum(["interface", "class", "program", "ddls", "dcls", "ddlx"]).optional(),
+    objectName: z.string().optional(),
+    containerName: z.string().optional(),
+    uri: z.string().optional(),
+    version: z.enum(["active", "inactive"]).optional(),
+    packageName: z.string().optional(),
+  },
+  async ({ objectType, objectName, containerName, uri, version, packageName }) => {
+    if (objectType) {
+      assertAllowedObjectType(config, objectType);
+    }
+    assertAllowedPackage(config, packageName);
+
+    const result = await adtClient.syntaxCheckObject({
+      objectType: objectType as SupportedObjectType | undefined,
+      objectName,
+      containerName,
+      uri,
+      version,
+    });
+
+    return textResult(JSON.stringify(
+      {
+        objectType: result.objectType,
+        objectName: result.objectName,
+        definitionUri: result.definitionUri,
+        sourceUri: result.sourceUri,
+        version: result.version,
+        mode: result.mode,
+        parsedResult: result.parsedResult,
+        status: result.response.status,
+        statusText: result.response.statusText,
+        body: trimBody(result.response.body),
+      },
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
+  "sap_adt_syntax_check_source",
+  "Run an ADT syntax check against draft source content without saving or activating it. Supports class, interface, program, DDLS, DCLS and DDLX.",
+  {
+    objectType: z.enum(["interface", "class", "program", "ddls", "dcls", "ddlx"]).optional(),
+    objectName: z.string().optional(),
+    containerName: z.string().optional(),
+    uri: z.string().optional(),
+    content: z.string(),
+    version: z.enum(["active", "inactive"]).optional(),
+    packageName: z.string().optional(),
+  },
+  async ({ objectType, objectName, containerName, uri, content, version, packageName }) => {
+    if (objectType) {
+      assertAllowedObjectType(config, objectType);
+    }
+    assertAllowedPackage(config, packageName);
+
+    const result = await adtClient.syntaxCheckSource({
+      objectType: objectType as SupportedObjectType | undefined,
+      objectName,
+      containerName,
+      uri,
+      content,
+      version,
+    });
+
+    return textResult(JSON.stringify(
+      {
+        objectType: result.objectType,
+        objectName: result.objectName,
+        definitionUri: result.definitionUri,
+        sourceUri: result.sourceUri,
+        version: result.version,
+        mode: result.mode,
+        parsedResult: result.parsedResult,
+        status: result.response.status,
+        statusText: result.response.statusText,
+        body: trimBody(result.response.body),
+      },
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
+  "sap_adt_lock_object",
+  "Lock an editable SAP ADT repository source object explicitly. Intended for advanced workflows that need direct lock control.",
+  {
+    objectType: z.enum(["functiongroup", "functionmodule", "interface", "class", "program", "ddls", "bdef", "dcls", "ddlx"]).optional(),
+    objectName: z.string().optional(),
+    containerName: z.string().optional(),
+    uri: z.string().optional(),
+    packageName: z.string().optional(),
+  },
+  async ({ objectType, objectName, containerName, uri, packageName }) => {
+    if (objectType) {
+      assertAllowedObjectType(config, objectType);
+    }
+    assertAllowedPackage(config, packageName);
+
+    const result = await adtClient.lockObject({
+      objectType: objectType as SupportedObjectType | undefined,
+      objectName,
+      containerName,
+      uri,
+    });
+
+    return textResult(JSON.stringify(
+      {
+        objectType: result.objectType,
+        objectName: result.objectName,
+        lockUri: result.lockUri,
+        lockHandle: result.result.lockHandle,
+        transportRequest: result.result.transportRequest,
+        transportUser: result.result.transportUser,
+        transportText: result.result.transportText,
+        isLocal: result.result.isLocal,
+        rawBody: trimBody(result.result.rawBody),
+      },
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
+  "sap_adt_unlock_object",
+  "Unlock an editable SAP ADT repository source object explicitly with a lock handle obtained earlier.",
+  {
+    objectType: z.enum(["functiongroup", "functionmodule", "interface", "class", "program", "ddls", "bdef", "dcls", "ddlx"]).optional(),
+    objectName: z.string().optional(),
+    containerName: z.string().optional(),
+    uri: z.string().optional(),
+    lockHandle: z.string(),
+    packageName: z.string().optional(),
+  },
+  async ({ objectType, objectName, containerName, uri, lockHandle, packageName }) => {
+    if (objectType) {
+      assertAllowedObjectType(config, objectType);
+    }
+    assertAllowedPackage(config, packageName);
+
+    const result = await adtClient.unlockObject({
+      objectType: objectType as SupportedObjectType | undefined,
+      objectName,
+      containerName,
+      uri,
+      lockHandle,
+    });
+
+    return textResult(JSON.stringify(
+      {
+        objectType: result.objectType,
+        objectName: result.objectName,
+        lockUri: result.lockUri,
+        status: result.response.status,
+        statusText: result.response.statusText,
+        body: trimBody(result.response.body),
+      },
+      null,
+      2,
+    ));
+  },
+);
+
+server.tool(
   "sap_adt_activate_dependency_chain",
   "Activate a small known dependency chain in a deterministic SAP-friendly order. Use this when the caller already knows the affected objects but should not have to decide the activation sequence.",
   {

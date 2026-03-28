@@ -35,6 +35,31 @@ New in this version:
 - one release note now exists for this stabilization baseline:
   - `SAP_ADT_MCP_Release_1.4.0.md`
 
+The current workspace also includes the next syntax-check step for the upcoming version:
+
+- `sap_adt_syntax_check_object`
+- `sap_adt_syntax_check_source`
+- `sap_adt_lock_object`
+- `sap_adt_unlock_object`
+- current verified scope:
+  - `class`
+  - `interface`
+  - `program`
+  - `ddls`
+  - `dcls`
+  - `ddlx`
+- current implementation modes:
+  - `source_artifact`
+    - reads the current repository source and submits it to `/checkruns?reporters=abapCheckRun`
+  - `repository`
+    - checks repository-backed DDLS/DCLS/DDLX objects directly through the same ADT checkrun endpoint
+  - `draft_source_artifact`
+    - submits client-provided draft content to the same ADT checkrun endpoint without saving it
+- current advanced control layer:
+  - explicit source lock by normalized object identity or direct URI
+  - explicit source unlock by `lockHandle`
+  - intentionally narrow scope, without a broader public session API
+
 ## What Was New In 1.3.0
 
 Version `1.3.0` consolidates the newest findings from activation hardening, ABAP Unit verification and the SAPUI5 backend scenario.

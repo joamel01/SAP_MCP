@@ -172,6 +172,25 @@ export interface ParsedRuntimeOutput {
   };
 }
 
+export interface ParsedSyntaxCheckMessage {
+  uri?: string;
+  line?: number;
+  offset?: number;
+  severity: string;
+  text: string;
+}
+
+export interface ParsedSyntaxCheckResult {
+  format: "empty" | "adt-checkmessages" | "unknown";
+  category: "clean" | "warnings" | "errors" | "unknown";
+  messageCount: number;
+  errorCount: number;
+  warningCount: number;
+  infoCount: number;
+  summary: string;
+  messages: ParsedSyntaxCheckMessage[];
+}
+
 export interface ParsedUserParameterEntry {
   parameterId: string;
   value: string;
@@ -604,6 +623,75 @@ function normalizeRuntimeBody(body: string): string {
   return body;
 }
 
+export function parseSyntaxCheckResult(xml: string): ParsedSyntaxCheckResult {
+  const trimmed = xml.trim();
+  if (trimmed === "") {
+    return {
+      format: "empty",
+      category: "clean",
+      messageCount: 0,
+      errorCount: 0,
+      warningCount: 0,
+      infoCount: 0,
+      summary: "No syntax messages returned.",
+      messages: [],
+    };
+  }
+
+  const messageRegex = /<(?:\w+:)?checkMessage\b([^>]*)\/?>/g;
+  const messages: ParsedSyntaxCheckMessage[] = [];
+  let match = messageRegex.exec(xml);
+  while (match) {
+    const attributes = parseTagAttributes(match[1]);
+    const severity = attributes["chkrun:severity"] ?? attributes["chkrun:type"] ?? attributes.severity ?? attributes.type ?? "unknown";
+    const line = toOptionalInt(attributes["chkrun:line"] ?? attributes.line);
+    const offset = toOptionalInt(attributes["chkrun:offset"] ?? attributes.offset);
+    messages.push({
+      uri: attributes["adtcore:uri"] ?? attributes["chkrun:uri"] ?? attributes.uri,
+      line,
+      offset,
+      severity,
+      text: attributes["chkrun:text"] ?? attributes["chkrun:shortText"] ?? attributes.text ?? attributes.shortText ?? "",
+    });
+    match = messageRegex.exec(xml);
+  }
+
+  if (!/<(?:\w+:)?checkRunReports\b/i.test(xml)) {
+    return {
+      format: "unknown",
+      category: "unknown",
+      messageCount: 0,
+      errorCount: 0,
+      warningCount: 0,
+      infoCount: 0,
+      summary: "Could not recognize the ADT syntax-check response payload.",
+      messages: [],
+    };
+  }
+
+  const errorCount = messages.filter((message) => isSyntaxSeverity(message.severity, "error")).length;
+  const warningCount = messages.filter((message) => isSyntaxSeverity(message.severity, "warning")).length;
+  const infoCount = Math.max(0, messages.length - errorCount - warningCount);
+  const firstRelevant = messages.find((message) => isSyntaxSeverity(message.severity, "error"))
+    ?? messages.find((message) => isSyntaxSeverity(message.severity, "warning"))
+    ?? messages[0];
+  const category = errorCount > 0 ? "errors" : warningCount > 0 ? "warnings" : "clean";
+  const summary = firstRelevant
+    ? buildSyntaxSummary(firstRelevant, errorCount, warningCount, infoCount)
+    : "No syntax messages returned.";
+
+  return {
+    format: "adt-checkmessages",
+    category,
+    messageCount: messages.length,
+    errorCount,
+    warningCount,
+    infoCount,
+    summary,
+    messages,
+  };
+}
+
 function parsePlainTextTable(lines: string[]): { title?: string; headers: string[]; rows: string[][] } | undefined {
   if (lines.length < 2) {
     return undefined;
@@ -654,4 +742,29 @@ function splitColumns(line: string): string[] {
     .split(/\s{2,}/)
     .map((column) => column.trim())
     .filter((column) => column !== "");
+}
+
+function isSyntaxSeverity(severity: string, expected: "error" | "warning"): boolean {
+  const normalized = severity.trim().toLowerCase();
+  if (expected === "error") {
+    return normalized === "e" || normalized.includes("error");
+  }
+  return normalized === "w" || normalized.includes("warning");
+}
+
+function buildSyntaxSummary(
+  firstMessage: ParsedSyntaxCheckMessage,
+  errorCount: number,
+  warningCount: number,
+  infoCount: number,
+): string {
+  const locationParts: string[] = [];
+  if (typeof firstMessage.line === "number") {
+    locationParts.push(`line ${firstMessage.line}`);
+  }
+  if (typeof firstMessage.offset === "number") {
+    locationParts.push(`offset ${firstMessage.offset}`);
+  }
+  const location = locationParts.length > 0 ? ` at ${locationParts.join(", ")}` : "";
+  return `errors=${errorCount}, warnings=${warningCount}, info=${infoCount}. First message${location}: ${firstMessage.text}`;
 }

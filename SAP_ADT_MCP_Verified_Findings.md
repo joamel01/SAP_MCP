@@ -28,6 +28,69 @@ The findings in this document were gathered primarily from verification runs aga
   - program activation works with `objectType + objectName`
   - DDLS activation works with `objectType + objectName`
   - source URIs ending in `.../source/main` are normalized automatically before activation
+- syntax-check support is now verified through ADT check runs for a first safe subset:
+  - `class`
+  - `interface`
+  - `program`
+  - `ddls`
+  - `dcls`
+  - `ddlx`
+- verified syntax-check execution modes:
+  - `source_artifact`
+    - used for class, interface and program
+    - the MCP reads the current active repository source and submits it to `/checkruns?reporters=abapCheckRun`
+  - `repository`
+    - used for DDLS, DCLS and DDLX
+    - the MCP checks the repository object directly without an extra source artifact read
+- verified live syntax-check cases:
+  - class `ZCL_GEMINI_MCP_T1`
+    - `200 OK`
+    - clean result
+    - zero syntax messages
+  - DDLS `ZI_GEMINI_CARR_T1`
+    - `200 OK`
+    - warning result
+    - first warning:
+      - `Search help assignment for field 'CurrencyCode' is not inherited from base object`
+- draft-source syntax check is now also verified through the same ADT checkrun infrastructure:
+  - current verified scope:
+    - `class`
+    - `interface`
+    - `program`
+    - `ddls`
+    - `dcls`
+    - `ddlx`
+  - current mode:
+    - `draft_source_artifact`
+  - verified live draft cases:
+    - class `ZCL_GEMINI_MCP_T1`
+      - intentionally broken draft content returned:
+        - `The statement METHOD ... . is unexpected`
+    - DDLS `ZI_GEMINI_CARR_T1`
+      - intentionally broken draft content returned:
+        - `The data source "does_not_exist_source" does not exist or is not active`
+- practical result:
+  - syntax problems can now be surfaced before repository write and activation
+- one small advanced lock-control layer is now also verified:
+  - `sap_adt_lock_object`
+  - `sap_adt_unlock_object`
+- verified live lock case:
+  - class `ZCL_GEMINI_MCP_T1`
+  - source lock returned:
+    - real `LOCK_HANDLE`
+    - transport request `A4HK900318`
+    - transport user `CODEX`
+  - explicit unlock returned:
+    - `200 OK`
+- practical scope decision:
+  - explicit lock/unlock is useful for edge workflows
+  - a broader public session-status API is still not required
+- practical parsing finding:
+  - ADT syntax-check responses can use:
+    - `chkrun:type`
+    - `chkrun:shortText`
+    - `chkrun:uri`
+  - not only `severity` and `text`
 - interface object handling is now verified end-to-end through native ADT endpoints:
   - create: `/oo/interfaces`
   - source read/write: `/oo/interfaces/{name}/source/main`

@@ -17,6 +17,8 @@ The MCP now covers the main repository-centric SAP ADT workflows needed by an AI
 - read object source and metadata
 - write object source with stateful session handling
 - lock and unlock flows
+- explicit advanced lock/unlock helpers for source objects
+- syntax check for supported repository objects without activation
 - activation and activation log lookup
 - dependency-aware activation helper for small known object chains
 - small-set mass activation with optional stop-on-error behavior
@@ -129,6 +131,30 @@ The following behavior is verified against SAP and reflected in the implementati
   - `objectType + objectName`
   - direct definition URI
   - `.../source/main` URI
+- `sap_adt_syntax_check_object` now supports repository-safe syntax checking for:
+  - `class`
+  - `interface`
+  - `program`
+  - `ddls`
+  - `dcls`
+  - `ddlx`
+- `sap_adt_syntax_check_source` now supports draft-source syntax checking for the same object families without save or activation
+- `sap_adt_lock_object` and `sap_adt_unlock_object` now expose a small advanced control layer for:
+  - explicit source locks
+  - explicit source unlock with a returned `lockHandle`
+- verified syntax-check modes:
+  - `source_artifact` for class, interface and program
+  - `repository` for DDLS, DCLS and DDLX
+  - `draft_source_artifact` for client-supplied draft content
+- verified live syntax-check cases:
+  - class `ZCL_GEMINI_MCP_T1` returned a clean result
+  - DDLS `ZI_GEMINI_CARR_T1` returned a real warning about a non-inherited search help assignment
+  - draft class content for `ZCL_GEMINI_MCP_T1` returned a real syntax error before save
+  - draft DDLS content for `ZI_GEMINI_CARR_T1` returned a real CDS source error before save
+  - explicit lock/unlock for class `ZCL_GEMINI_MCP_T1` returned:
+    - real `lockHandle`
+    - transport `A4HK900318`
+    - clean `200 OK` unlock
 - `sap_adt_activate_dependency_chain` now supports deterministic helper ordering for:
   - mixed DDLS + class + program stacks
   - DDLS + DCL + DDLX stacks
