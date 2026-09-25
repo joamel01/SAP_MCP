@@ -86,6 +86,7 @@ export interface AdtCreatePackageInput {
   recordChanges: boolean;
   softwareComponent: string;
   softwareComponentDescription: string;
+  transportRequest?: string;
 }
 
 export interface AdtCreateFunctionGroupInput {

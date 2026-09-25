@@ -1442,6 +1442,7 @@ server.tool(
     recordChanges: z.boolean().optional(),
     softwareComponent: z.string().optional(),
     softwareComponentDescription: z.string().optional(),
+    transportRequest: z.string().optional(),
   },
   async ({
     packageName,
@@ -1451,6 +1452,7 @@ server.tool(
     recordChanges,
     softwareComponent,
     softwareComponentDescription,
+    transportRequest,
   }) => {
     assertAllowedPackage(config, packageName);
     if (superPackage) {
@@ -1466,6 +1468,7 @@ server.tool(
       softwareComponent: softwareComponent ?? config.defaultSoftwareComponent,
       softwareComponentDescription:
         softwareComponentDescription ?? config.defaultSoftwareComponentDescription,
+      transportRequest,
     });
 
     return textResult(JSON.stringify(

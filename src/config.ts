@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import dotenv from "dotenv";
 import type { ObjectUriTemplateMap, ServerConfig, SupportedObjectType } from "./types.js";
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const SUPPORTED_TYPES: SupportedObjectType[] = [
   "functiongroup",

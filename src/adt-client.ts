@@ -570,7 +570,11 @@ export class AdtClient {
 
   async createPackage(input: AdtCreatePackageInput): Promise<AdtResponseSummary> {
     const packageXml = this.buildPackageXml(input);
-    const response = await this.request("POST", "/packages", {
+    const transportRequest = input.transportRequest
+      ? normalizeObjectName(input.transportRequest)
+      : undefined;
+    const query = transportRequest ? `?${this.buildCorrNrQuery(transportRequest)}` : "";
+    const response = await this.request("POST", `/packages${query}`, {
       body: packageXml,
       headers: {
         "Content-Type": "application/vnd.sap.adt.packages.v2+xml",
@@ -922,6 +926,15 @@ export class AdtClient {
 
   async createDataElement(input: AdtCreateDataElementInput): Promise<AdtResponseSummary> {
     const normalizedName = normalizeObjectName(input.dataElementName);
+    const normalizedDomain = normalizeObjectName(input.domainName);
+    const domainResponse = await this.request("GET", `/ddic/domains/${normalizedDomain.toLowerCase()}`);
+    this.ensureSuccess(domainResponse, `Failed to read domain ${normalizedDomain}`);
+    const dataType = parseXmlTag(domainResponse.body, "doma:datatype");
+    const dataTypeLength = parseXmlTag(domainResponse.body, "doma:length");
+    const dataTypeDecimals = parseXmlTag(domainResponse.body, "doma:decimals");
+    if (!dataType || !dataTypeLength || !dataTypeDecimals) {
+      throw new Error(`Domain ${normalizedDomain} has incomplete type information.`);
+    }
     const transportRequest = await this.resolveEffectiveTransportRequest(input.transportRequest);
     const createResponse = await this.request("POST", `/ddic/dataelements?${this.buildCorrNrQuery(transportRequest)}`, {
       body: this.buildDataElementCreateXml(input),
@@ -940,7 +953,7 @@ export class AdtClient {
         "PUT",
         `${uri}?${this.buildLockQuery(lockResult.lockHandle, transportRequest ?? lockResult.transportRequest)}`,
         {
-          body: this.buildDataElementXml(input),
+          body: this.buildDataElementXml(input, { dataType, dataTypeLength, dataTypeDecimals }),
           headers: {
             "Content-Type": "application/vnd.sap.adt.dataelements.v2+xml; charset=utf-8",
           },
@@ -2475,7 +2488,10 @@ export class AdtClient {
       `</blue:wbobj>`;
   }
 
-  private buildDataElementXml(input: AdtCreateDataElementInput): string {
+  private buildDataElementXml(
+    input: AdtCreateDataElementInput,
+    domainType: { dataType: string; dataTypeLength: string; dataTypeDecimals: string },
+  ): string {
     const normalizedName = normalizeObjectName(input.dataElementName);
     const normalizedPackage = normalizeObjectName(input.packageName);
     const normalizedDomain = normalizeObjectName(input.domainName);
@@ -2491,10 +2507,21 @@ export class AdtClient {
       `<dtel:dataElement xmlns:dtel="http://www.sap.com/adt/dictionary/dataelements">` +
       `<dtel:typeKind>domain</dtel:typeKind>` +
       `<dtel:typeName>${normalizedDomain}</dtel:typeName>` +
-      `<dtel:shortFieldLabel>${input.shortFieldLabel}</dtel:shortFieldLabel>` +
-      `<dtel:mediumFieldLabel>${input.mediumFieldLabel}</dtel:mediumFieldLabel>` +
-      `<dtel:longFieldLabel>${input.longFieldLabel}</dtel:longFieldLabel>` +
-      `<dtel:headingFieldLabel>${input.headingFieldLabel}</dtel:headingFieldLabel>` +
+      `<dtel:dataType>${domainType.dataType}</dtel:dataType>` +
+      `<dtel:dataTypeLength>${domainType.dataTypeLength}</dtel:dataTypeLength>` +
+      `<dtel:dataTypeDecimals>${domainType.dataTypeDecimals}</dtel:dataTypeDecimals>` +
+      `<dtel:shortFieldLabel>${xmlEscape(input.shortFieldLabel)}</dtel:shortFieldLabel>` +
+      `<dtel:shortFieldLength>${String(input.shortFieldLabel.length).padStart(2, "0")}</dtel:shortFieldLength>` +
+      `<dtel:shortFieldMaxLength>10</dtel:shortFieldMaxLength>` +
+      `<dtel:mediumFieldLabel>${xmlEscape(input.mediumFieldLabel)}</dtel:mediumFieldLabel>` +
+      `<dtel:mediumFieldLength>${String(input.mediumFieldLabel.length).padStart(2, "0")}</dtel:mediumFieldLength>` +
+      `<dtel:mediumFieldMaxLength>20</dtel:mediumFieldMaxLength>` +
+      `<dtel:longFieldLabel>${xmlEscape(input.longFieldLabel)}</dtel:longFieldLabel>` +
+      `<dtel:longFieldLength>${String(input.longFieldLabel.length).padStart(2, "0")}</dtel:longFieldLength>` +
+      `<dtel:longFieldMaxLength>40</dtel:longFieldMaxLength>` +
+      `<dtel:headingFieldLabel>${xmlEscape(input.headingFieldLabel)}</dtel:headingFieldLabel>` +
+      `<dtel:headingFieldLength>${String(input.headingFieldLabel.length).padStart(2, "0")}</dtel:headingFieldLength>` +
+      `<dtel:headingFieldMaxLength>55</dtel:headingFieldMaxLength>` +
       `<dtel:searchHelp/><dtel:searchHelpParameter/><dtel:setGetParameter/>` +
       `<dtel:defaultComponentName>${normalizedComponent}</dtel:defaultComponentName>` +
       `<dtel:deactivateInputHistory>false</dtel:deactivateInputHistory>` +
@@ -3510,7 +3537,11 @@ ENDLOOP.`;
   ): Promise<AdtResponseSummary> {
     const stateful = options.stateful ?? false;
     const session = options.session ?? (stateful ? this.statefulSession : this.statelessSession);
-    const target = uri.startsWith("http") ? uri : `${this.config.adtBaseUrl}${uri}`;
+    const target = uri.startsWith("http")
+      ? uri
+      : uri.startsWith("/sap/bc/adt/")
+        ? `${new URL(this.config.adtBaseUrl).origin}${uri}`
+        : `${this.config.adtBaseUrl}${uri}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
